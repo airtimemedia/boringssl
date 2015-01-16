@@ -8,6 +8,10 @@ add_library(
 	hmac.c
 )
 
+set_source_files_properties(
+       hmac.c
+       PROPERTIES COMPILE_FLAGS "-Wno-tautological-compare"
+)
 
 add_executable(
 	hmac_test

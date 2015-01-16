@@ -19,6 +19,11 @@ add_library(
 	socket_helper.c
 )
 
+set_source_files_properties(
+	pair.c
+	PROPERTIES COMPILE_FLAGS "-Wno-tautological-compare"
+)
+
 add_executable(
 	bio_test
 
