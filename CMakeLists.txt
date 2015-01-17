@@ -38,6 +38,14 @@ else()
 	message(FATAL_ERROR "Unknown processor:" ${CMAKE_SYSTEM_PROCESSOR})
 endif()
 
+if (${CMAKE_GENERATOR} MATCHES Xcode AND (${ARCH} STREQUAL "arm" OR ${ARCH} STREQUAL "aarch64"))
+	# This is meant to capture the iOS case; the clang integrated assembler
+	# doesn't like some of the assembler directives in the provided ARM
+	# assembly
+	add_definitions(-DOPENSSL_NO_ASM)
+	set(IOS 1)
+endif()
+
 if (${ARCH} STREQUAL "x86" AND APPLE)
 	# With CMake 2.8.x, ${CMAKE_SYSTEM_PROCESSOR} evalutes to i386 on OS X,
 	# but clang defaults to 64-bit builds on OS X unless otherwise told.

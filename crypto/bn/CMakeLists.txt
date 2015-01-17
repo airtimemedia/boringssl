@@ -25,7 +25,7 @@ if (${ARCH} STREQUAL "x86")
 	)
 endif()
 
-if (${ARCH} STREQUAL "arm")
+if (${ARCH} STREQUAL "arm" AND NOT IOS)
 	set(
 		BN_ARCH_SOURCES
 

@@ -21,7 +21,7 @@ if (${ARCH} STREQUAL "x86")
 	)
 endif()
 
-if (${ARCH} STREQUAL "arm")
+if (${ARCH} STREQUAL "arm" AND NOT IOS)
 	set(
 		AES_ARCH_SOURCES
 
@@ -31,7 +31,7 @@ if (${ARCH} STREQUAL "arm")
 	)
 endif()
 
-if (${ARCH} STREQUAL "aarch64")
+if (${ARCH} STREQUAL "aarch64" AND NOT IOS)
 	set(
 		AES_ARCH_SOURCES
 

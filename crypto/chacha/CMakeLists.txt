@@ -1,6 +1,6 @@
 include_directories(. .. ../../include)
 
-if (${ARCH} STREQUAL "arm")
+if (${ARCH} STREQUAL "arm" AND NOT IOS)
 	set(
 		CHACHA_ARCH_SOURCES
 
