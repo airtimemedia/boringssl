@@ -44,6 +44,12 @@ add_library(
 	x509v3_error.c
 )
 
+set_source_files_properties(
+	v3_bcons.c v3_utl.c
+	PROPERTIES COMPILE_FLAGS "-frewrite-includes"
+)
+
+
 add_executable(
 	v3name_test
 
