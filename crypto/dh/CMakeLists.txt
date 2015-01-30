@@ -19,4 +19,6 @@ add_executable(
 	dh_test.c
 )
 
+set_executable_props(dh_test)
+
 target_link_libraries(dh_test crypto)

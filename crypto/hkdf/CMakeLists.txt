@@ -15,4 +15,6 @@ add_executable(
 	hkdf_test.c
 )
 
+set_executable_props(hkdf_test)
+
 target_link_libraries(hkdf_test crypto)

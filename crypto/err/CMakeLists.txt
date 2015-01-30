@@ -15,4 +15,6 @@ add_executable(
 	err_test.c
 )
 
+set_executable_props(err_test)
+
 target_link_libraries(err_test crypto)

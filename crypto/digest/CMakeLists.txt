@@ -16,4 +16,6 @@ add_executable(
 	digest_test.c
 )
 
+set_executable_props(digest_test)
+
 target_link_libraries(digest_test crypto)

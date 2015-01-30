@@ -16,4 +16,6 @@ add_executable(
 	bytestring_test.c
 )
 
+set_executable_props(bytestring_test)
+
 target_link_libraries(bytestring_test crypto)

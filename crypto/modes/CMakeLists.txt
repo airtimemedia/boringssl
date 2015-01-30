@@ -60,4 +60,6 @@ add_executable(
 	gcm_test.c
 )
 
+set_executable_props(gcm_test)
+
 target_link_libraries(gcm_test crypto)

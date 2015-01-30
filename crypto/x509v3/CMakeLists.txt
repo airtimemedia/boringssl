@@ -56,11 +56,15 @@ add_executable(
 	v3nametest.c
 )
 
+set_executable_props(v3name_test)
+
 add_executable(
 	tab_test
 
 	tabtest.c
 )
+
+set_executable_props(tab_test)
 
 target_link_libraries(v3name_test crypto)
 target_link_libraries(tab_test crypto)

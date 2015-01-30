@@ -19,4 +19,6 @@ add_executable(
 	rsa_test.c
 )
 
+set_executable_props(rsa_test)
+
 target_link_libraries(rsa_test crypto)

@@ -28,4 +28,6 @@ add_executable(
 	evp_test.c
 )
 
+set_executable_props(evp_test)
+
 target_link_libraries(evp_test crypto)

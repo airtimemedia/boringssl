@@ -53,6 +53,17 @@ if (${ARCH} STREQUAL "x86" AND APPLE)
 	set(ARCH "x86_64")
 endif()
 
+# This sets the correct properties on an executable so that it can be run on iOS
+macro(set_executable_props name)
+	if (IOS)
+		set_target_properties (${name} PROPERTIES MACOSX_BUNDLE ON)
+		set_target_properties (${name} PROPERTIES XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer")
+                # no underscores allowed in the bundle name
+		string(REGEX REPLACE "_" "" stripped_name ${name})
+		set_target_properties (${name} PROPERTIES MACOSX_BUNDLE_GUI_IDENTIFIER ${stripped_name})
+	endif()
+endmacro()
+
 add_subdirectory(crypto)
 add_subdirectory(ssl)
 add_subdirectory(ssl/test)

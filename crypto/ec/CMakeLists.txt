@@ -21,11 +21,15 @@ add_executable(
 	example_mul.c
 )
 
+set_executable_props(example_mul)
+
 add_executable(
 	ec_test
 
 	ec_test.c
 )
+
+set_executable_props(ec_test)
 
 target_link_libraries(example_mul crypto)
 target_link_libraries(ec_test crypto)

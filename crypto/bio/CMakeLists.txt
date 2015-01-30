@@ -30,6 +30,8 @@ add_executable(
 	bio_test.c
 )
 
+set_executable_props(bio_test)
+
 target_link_libraries(bio_test crypto)
 if (WIN32)
 	target_link_libraries(bio_test ws2_32)

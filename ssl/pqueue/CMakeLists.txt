@@ -14,4 +14,6 @@ add_executable(
 	pqueue_test.c
 )
 
+set_executable_props(pqueue_test)
+
 target_link_libraries(pqueue_test ssl crypto)

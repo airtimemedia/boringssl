@@ -75,4 +75,6 @@ add_executable(
 	bn_test.c
 )
 
+set_executable_props(bn_test)
+
 target_link_libraries(bn_test crypto)

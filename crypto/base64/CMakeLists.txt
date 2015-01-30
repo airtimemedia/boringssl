@@ -14,4 +14,6 @@ add_executable(
 	base64_test.c
 )
 
+set_executable_props(base64_test)
+
 target_link_libraries(base64_test crypto)

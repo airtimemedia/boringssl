@@ -19,4 +19,6 @@ add_executable(
 	hmac_test.c
 )
 
+set_executable_props(hmac_test)
+
 target_link_libraries(hmac_test crypto)

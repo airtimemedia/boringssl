@@ -43,4 +43,6 @@ add_executable(
 	ssl_test.c
 )
 
+set_executable_props(ssl_test)
+
 target_link_libraries(ssl_test ssl crypto)

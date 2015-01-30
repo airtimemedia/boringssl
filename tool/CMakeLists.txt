@@ -13,6 +13,8 @@ add_executable(
 	transport_common.cc
 )
 
+set_executable_props(bssl)
+
 if (APPLE OR WIN32)
 	target_link_libraries(bssl ssl crypto)
 else()

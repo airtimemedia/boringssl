@@ -28,11 +28,15 @@ add_executable(
 	cipher_test.c
 )
 
+set_executable_props(cipher_test)
+
 add_executable(
 	aead_test
 
 	aead_test.c
 )
+
+set_executable_props(aead_test)
 
 target_link_libraries(cipher_test crypto)
 target_link_libraries(aead_test crypto)

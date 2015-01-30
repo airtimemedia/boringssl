@@ -17,4 +17,6 @@ add_executable(
 	ecdsa_test.c
 )
 
+set_executable_props(ecdsa_test)
+
 target_link_libraries(ecdsa_test crypto)

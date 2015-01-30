@@ -18,4 +18,6 @@ add_executable(
 	pkcs12_test.c
 )
 
+set_executable_props(pkcs12_test)
+
 target_link_libraries(pkcs12_test crypto)

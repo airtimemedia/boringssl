@@ -14,4 +14,6 @@ add_executable(
 	lhash_test.c
 )
 
+set_executable_props(lhash_test)
+
 target_link_libraries(lhash_test crypto)

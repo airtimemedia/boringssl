@@ -17,4 +17,6 @@ add_executable(
 	dsa_test.c
 )
 
+set_executable_props(dsa_test)
+
 target_link_libraries(dsa_test crypto)
