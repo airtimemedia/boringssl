@@ -38,8 +38,8 @@ else()
 	message(FATAL_ERROR "Unknown processor:" ${CMAKE_SYSTEM_PROCESSOR})
 endif()
 
-if (${CMAKE_GENERATOR} MATCHES Xcode AND (${ARCH} STREQUAL "arm" OR ${ARCH} STREQUAL "aarch64"))
-	# This is meant to capture the iOS case; the clang integrated assembler
+if (${BORINGSSL_NO_ASM})
+	# This is meant to capture the iOS and Android case; the clang integrated assembler
 	# doesn't like some of the assembler directives in the provided ARM
 	# assembly
 	add_definitions(-DOPENSSL_NO_ASM)
