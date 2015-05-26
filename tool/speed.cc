@@ -169,8 +169,8 @@ struct free_functor {
   }
 };
 
-#if defined(OPENSSL_WINDOWS) || defined(OPENSSL_ANDROID)
-#define AllocAligned (uint8_t*)malloc
+#if defined(OPENSSL_WINDOWS)
+#define AllocAligned malloc
 #else
 uint8_t *AllocAligned(size_t size) {
   void *ptr;

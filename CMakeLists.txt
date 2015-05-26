@@ -39,7 +39,7 @@ else()
 endif()
 
 if (${BORINGSSL_NO_ASM})
-	# This is meant to capture the iOS case; the clang integrated assembler
+	# This is meant to capture the iOS and Android case; the clang integrated assembler
 	# doesn't like some of the assembler directives in the provided ARM
 	# assembly
 	add_definitions(-DOPENSSL_NO_ASM)
