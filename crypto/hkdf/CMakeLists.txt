@@ -1,18 +1,17 @@
 include_directories(. .. ../../include)
 
 add_library(
-	hkdf
+  hkdf
 
-	OBJECT
+  OBJECT
 
-	hkdf.c
-	hkdf_error.c
+  hkdf.c
 )
 
 add_executable(
-	hkdf_test
+  hkdf_test
 
-	hkdf_test.c
+  hkdf_test.c
 )
 
 set_executable_props(hkdf_test)

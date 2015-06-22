@@ -1,11 +1,11 @@
 include_directories(. .. ../../include)
 
 add_library(
-	hmac
+  hmac
 
-	OBJECT
+  OBJECT
 
-	hmac.c
+  hmac.c
 )
 
 set_source_files_properties(
@@ -14,9 +14,10 @@ set_source_files_properties(
 )
 
 add_executable(
-	hmac_test
+  hmac_test
 
-	hmac_test.c
+  hmac_test.cc
+  $<TARGET_OBJECTS:test_support>
 )
 
 set_executable_props(hmac_test)

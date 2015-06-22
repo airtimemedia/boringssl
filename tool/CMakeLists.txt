@@ -1,22 +1,20 @@
 include_directories(../include)
 
 add_executable(
-	bssl
+  bssl
 
-	args.cc
-	client.cc
-	server.cc
-	const.cc
-	pkcs12.cc
-	speed.cc
-	tool.cc
-	transport_common.cc
+  args.cc
+  client.cc
+  const.cc
+  digest.cc
+  pkcs12.cc
+  rand.cc
+  server.cc
+  speed.cc
+  tool.cc
+  transport_common.cc
 )
 
 set_executable_props(bssl)
 
-if (APPLE OR WIN32)
-	target_link_libraries(bssl ssl crypto)
-else()
-	target_link_libraries(bssl ssl crypto -lrt)
-endif()
+target_link_libraries(bssl ssl crypto)

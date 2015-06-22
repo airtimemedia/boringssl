@@ -1,17 +1,17 @@
 include_directories(. .. ../../include)
 
 add_library(
-	base64
+  base64
 
-	OBJECT
+  OBJECT
 
-	base64.c
+  base64.c
 )
 
 add_executable(
-	base64_test
+  base64_test
 
-	base64_test.c
+  base64_test.cc
 )
 
 set_executable_props(base64_test)

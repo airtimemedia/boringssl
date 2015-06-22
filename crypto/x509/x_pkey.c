@@ -56,9 +56,12 @@
 
 #include <openssl/x509.h>
 
+#include <string.h>
+
 #include <openssl/asn1.h>
-#include <openssl/mem.h>
 #include <openssl/err.h>
+#include <openssl/mem.h>
+#include <openssl/thread.h>
 
 
 X509_PKEY *X509_PKEY_new(void)

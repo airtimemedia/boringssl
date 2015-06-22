@@ -108,6 +108,8 @@
 
 #include <openssl/bn.h>
 
+#include <string.h>
+
 #include <openssl/err.h>
 #include <openssl/mem.h>
 #include <openssl/rand.h>
@@ -319,8 +321,6 @@ int BN_generate_dsa_nonce(BIGNUM *out, const BIGNUM *range, const BIGNUM *priv,
   ret = 1;
 
 err:
-  if (k_bytes) {
-    OPENSSL_free(k_bytes);
-  }
+  OPENSSL_free(k_bytes);
   return ret;
 }

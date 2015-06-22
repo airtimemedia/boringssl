@@ -14,6 +14,8 @@
 
 #include <openssl/aead.h>
 
+#include <string.h>
+
 #include <openssl/chacha.h>
 #include <openssl/cipher.h>
 #include <openssl/err.h>
@@ -81,7 +83,7 @@ static void poly1305_update_with_length(poly1305_state *poly1305,
   CRYPTO_poly1305_update(poly1305, length_bytes, sizeof(length_bytes));
 }
 
-#if __arm__
+#if defined(__arm__)
 #define ALIGNED __attribute__((aligned(16)))
 #else
 #define ALIGNED
@@ -207,8 +209,12 @@ static const EVP_AEAD aead_chacha20_poly1305 = {
     CHACHA20_NONCE_LEN, /* nonce len */
     POLY1305_TAG_LEN,   /* overhead */
     POLY1305_TAG_LEN,   /* max tag length */
-    aead_chacha20_poly1305_init, aead_chacha20_poly1305_cleanup,
-    aead_chacha20_poly1305_seal, aead_chacha20_poly1305_open,
+    aead_chacha20_poly1305_init,
+    NULL, /* init_with_direction */
+    aead_chacha20_poly1305_cleanup,
+    aead_chacha20_poly1305_seal,
+    aead_chacha20_poly1305_open,
+    NULL,               /* get_rc4_state */
 };
 
 const EVP_AEAD *EVP_aead_chacha20_poly1305(void) {
