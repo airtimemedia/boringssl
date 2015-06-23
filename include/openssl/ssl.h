@@ -2885,4 +2885,11 @@ OPENSSL_EXPORT const char *SSLeay_version(int unused);
 #define SSL_R_TLSV1_BAD_CERTIFICATE_STATUS_RESPONSE 1113
 #define SSL_R_TLSV1_BAD_CERTIFICATE_HASH_VALUE 1114
 
+// airtime: start
+// See https://github.com/chriskohlhoff/asio/issues/52
+#ifndef SSL_R_SHORT_READ
+#  define SSL_R_SHORT_READ SSL_R_UNEXPECTED_RECORD
+#endif
+// airtime: end
+
 #endif /* OPENSSL_HEADER_SSL_H */
