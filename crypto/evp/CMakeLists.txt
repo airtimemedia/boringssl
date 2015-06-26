@@ -28,6 +28,8 @@ add_executable(
   evp_extra_test.cc
 )
 
+set_executable_props(evp_extra_test)
+
 add_executable(
   evp_test
 

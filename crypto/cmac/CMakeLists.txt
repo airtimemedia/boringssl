@@ -14,4 +14,6 @@ add_executable(
   cmac_test.cc
 )
 
+set_executable_props(cmac_test)
+
 target_link_libraries(cmac_test crypto)

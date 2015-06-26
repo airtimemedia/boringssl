@@ -219,5 +219,7 @@ add_executable(
 
 target_link_libraries(thread_test crypto)
 
+set_executable_props(thread_test)
+
 perlasm(cpu-x86_64-asm.${ASM_EXT} cpu-x86_64-asm.pl)
 perlasm(cpu-x86-asm.${ASM_EXT} cpu-x86-asm.pl)
