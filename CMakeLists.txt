@@ -1,6 +1,16 @@
 cmake_minimum_required (VERSION 2.8.10)
 
-project (BoringSSL)
+# Defer enabling C and CXX languages.
+project (BoringSSL NONE)
+
+if(WIN32)
+  # On Windows, prefer cl over gcc if both are available. By default most of
+  # the CMake generators prefer gcc, even on Windows.
+  set(CMAKE_GENERATOR_CC cl)
+endif()
+
+enable_language(C)
+enable_language(CXX)
 
 if(ANDROID)
   # Android-NDK CMake files reconfigure the path and so Go and Perl won't be
@@ -17,15 +27,15 @@ if (NOT GO_EXECUTABLE)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Werror -ggdb -fvisibility=hidden")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror -ggdb -std=c++0x -fvisibility=hidden")
+  set(C_CXX_FLAGS "-Wall -Werror -Wformat=2 -Wsign-compare -Wmissing-field-initializers -ggdb -fvisibility=hidden")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${C_CXX_FLAGS}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x ${C_CXX_FLAGS}")
 elseif(MSVC)
   set(MSVC_DISABLED_WARNINGS_LIST
       "C4100" # 'exarg' : unreferenced formal parameter
       "C4127" # conditional expression is constant
       "C4200" # nonstandard extension used : zero-sized array in
               # struct/union.
-      "C4210" # nonstandard extension used : function given file scope
       "C4242" # 'function' : conversion from 'int' to 'uint8_t',
               # possible loss of data
       "C4244" # 'function' : conversion from 'int' to 'uint8_t',
@@ -76,6 +86,22 @@ if((CMAKE_COMPILER_IS_GNUCXX AND CMAKE_C_COMPILER_VERSION VERSION_GREATER "4.7.9
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wshadow")
 endif()
 
+if((CMAKE_COMPILER_IS_GNUCXX AND CMAKE_C_COMPILER_VERSION VERSION_GREATER "4.8.99") OR
+   CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -D_XOPEN_SOURCE=700")
+endif()
+
+if(FUZZ)
+  if(!CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message("You need to build with Clang for fuzzing to work")
+  endif()
+
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fsanitize-coverage=edge,indirect-calls")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fsanitize-coverage=edge,indirect-calls")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
+  link_directories(.)
+endif()
+
 add_definitions(-DBORINGSSL_IMPLEMENTATION)
 
 if (BUILD_SHARED_LIBS)
@@ -104,6 +130,8 @@ elseif (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "i686")
   set(ARCH "x86")
 elseif (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "arm")
   set(ARCH "arm")
+elseif (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "armv6")
+  set(ARCH "arm")
 elseif (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "armv7-a")
   set(ARCH "arm")
 elseif (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64")
@@ -124,7 +152,7 @@ if (ANDROID AND ${ARCH} STREQUAL "arm")
   # The Android-NDK CMake files somehow fail to set the -march flag for
   # assembly files. Without this flag, the compiler believes that it's
   # building for ARMv5.
-  set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -march=armv7-a")
+  set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -march=${CMAKE_SYSTEM_PROCESSOR}")
 endif()
 
 if (${ARCH} STREQUAL "x86" AND APPLE)
@@ -150,6 +178,10 @@ macro(set_executable_props name)
 	endif()
 endmacro()
 
+# Declare a dummy target to build all unit tests. Test targets should inject
+# themselves as dependencies next to the target definition.
+add_custom_target(all_tests)
+
 add_subdirectory(crypto)
 add_subdirectory(ssl)
 if (NOT ANDROID)
@@ -157,3 +189,22 @@ if (NOT ANDROID)
 	add_subdirectory(tool)
 endif()
 add_subdirectory(decrepit)
+
+if(FUZZ)
+  add_subdirectory(fuzz)
+endif()
+
+if (NOT ${CMAKE_VERSION} VERSION_LESS "3.2")
+  # USES_TERMINAL is only available in CMake 3.2 or later.
+  set(MAYBE_USES_TERMINAL USES_TERMINAL)
+endif()
+
+add_custom_target(
+    run_tests
+    COMMAND ${GO_EXECUTABLE} run util/all_tests.go -build-dir
+            ${CMAKE_BINARY_DIR}
+    COMMAND cd ssl/test/runner
+    COMMAND ${GO_EXECUTABLE} test -shim-path $<TARGET_FILE:bssl_shim>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    DEPENDS all_tests bssl_shim
+    ${MAYBE_USES_TERMINAL})

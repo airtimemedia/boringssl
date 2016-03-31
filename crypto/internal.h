@@ -112,6 +112,15 @@
 #include <openssl/ex_data.h>
 #include <openssl/thread.h>
 
+#if defined(_MSC_VER)
+#if !defined(__cplusplus) || _MSC_VER < 1900
+#define alignas(x) __declspec(align(x))
+#define alignof __alignof
+#endif
+#else
+#include <stdalign.h>
+#endif
+
 #if defined(OPENSSL_NO_THREADS)
 #elif defined(OPENSSL_WINDOWS)
 #pragma warning(push, 3)
@@ -168,18 +177,6 @@ extern "C" {
 #endif
 
 
-#if defined(_MSC_VER)
-#define OPENSSL_U64(x) x##UI64
-#else
-
-#if defined(OPENSSL_64_BIT)
-#define OPENSSL_U64(x) x##UL
-#else
-#define OPENSSL_U64(x) x##ULL
-#endif
-
-#endif  /* defined(_MSC_VER) */
-
 #if defined(OPENSSL_X86) || defined(OPENSSL_X86_64) || defined(OPENSSL_ARM) || \
     defined(OPENSSL_AARCH64)
 /* OPENSSL_cpuid_setup initializes OPENSSL_ia32cap_P. */
@@ -188,6 +185,12 @@ void OPENSSL_cpuid_setup(void);
 
 #if !defined(inline)
 #define inline __inline
+#endif
+
+
+#if !defined(_MSC_VER) && defined(OPENSSL_64_BIT)
+typedef __int128_t int128_t;
+typedef __uint128_t uint128_t;
 #endif
 
 
@@ -337,7 +340,7 @@ static inline int constant_time_select_int(unsigned int mask, int a, int b) {
 typedef uint32_t CRYPTO_once_t;
 #define CRYPTO_ONCE_INIT 0
 #elif defined(OPENSSL_WINDOWS)
-typedef LONG CRYPTO_once_t;
+typedef volatile LONG CRYPTO_once_t;
 #define CRYPTO_ONCE_INIT 0
 #else
 typedef pthread_once_t CRYPTO_once_t;
@@ -352,6 +355,28 @@ typedef pthread_once_t CRYPTO_once_t;
  * The |once| argument must be a |CRYPTO_once_t| that has been initialised with
  * the value |CRYPTO_ONCE_INIT|. */
 OPENSSL_EXPORT void CRYPTO_once(CRYPTO_once_t *once, void (*init)(void));
+
+
+/* Reference counting. */
+
+/* CRYPTO_REFCOUNT_MAX is the value at which the reference count saturates. */
+#define CRYPTO_REFCOUNT_MAX 0xffffffff
+
+/* CRYPTO_refcount_inc atomically increments the value at |*count| unless the
+ * value would overflow. It's safe for multiple threads to concurrently call
+ * this or |CRYPTO_refcount_dec_and_test_zero| on the same
+ * |CRYPTO_refcount_t|. */
+OPENSSL_EXPORT void CRYPTO_refcount_inc(CRYPTO_refcount_t *count);
+
+/* CRYPTO_refcount_dec_and_test_zero tests the value at |*count|:
+ *   if it's zero, it crashes the address space.
+ *   if it's the maximum value, it returns zero.
+ *   otherwise, it atomically decrements it and returns one iff the resulting
+ *       value is zero.
+ *
+ * It's safe for multiple threads to concurrently call this or
+ * |CRYPTO_refcount_inc| on the same |CRYPTO_refcount_t|. */
+OPENSSL_EXPORT int CRYPTO_refcount_dec_and_test_zero(CRYPTO_refcount_t *count);
 
 
 /* Locks.
@@ -387,37 +412,40 @@ struct CRYPTO_STATIC_MUTEX {
 
 /* CRYPTO_MUTEX_init initialises |lock|. If |lock| is a static variable, use a
  * |CRYPTO_STATIC_MUTEX|. */
-void CRYPTO_MUTEX_init(CRYPTO_MUTEX *lock);
+OPENSSL_EXPORT void CRYPTO_MUTEX_init(CRYPTO_MUTEX *lock);
 
 /* CRYPTO_MUTEX_lock_read locks |lock| such that other threads may also have a
  * read lock, but none may have a write lock. (On Windows, read locks are
  * actually fully exclusive.) */
-void CRYPTO_MUTEX_lock_read(CRYPTO_MUTEX *lock);
+OPENSSL_EXPORT void CRYPTO_MUTEX_lock_read(CRYPTO_MUTEX *lock);
 
 /* CRYPTO_MUTEX_lock_write locks |lock| such that no other thread has any type
  * of lock on it. */
-void CRYPTO_MUTEX_lock_write(CRYPTO_MUTEX *lock);
+OPENSSL_EXPORT void CRYPTO_MUTEX_lock_write(CRYPTO_MUTEX *lock);
 
 /* CRYPTO_MUTEX_unlock unlocks |lock|. */
-void CRYPTO_MUTEX_unlock(CRYPTO_MUTEX *lock);
+OPENSSL_EXPORT void CRYPTO_MUTEX_unlock(CRYPTO_MUTEX *lock);
 
 /* CRYPTO_MUTEX_cleanup releases all resources held by |lock|. */
-void CRYPTO_MUTEX_cleanup(CRYPTO_MUTEX *lock);
+OPENSSL_EXPORT void CRYPTO_MUTEX_cleanup(CRYPTO_MUTEX *lock);
 
 /* CRYPTO_STATIC_MUTEX_lock_read locks |lock| such that other threads may also
  * have a read lock, but none may have a write lock. The |lock| variable does
  * not need to be initialised by any function, but must have been statically
  * initialised with |CRYPTO_STATIC_MUTEX_INIT|. */
-void CRYPTO_STATIC_MUTEX_lock_read(struct CRYPTO_STATIC_MUTEX *lock);
+OPENSSL_EXPORT void CRYPTO_STATIC_MUTEX_lock_read(
+    struct CRYPTO_STATIC_MUTEX *lock);
 
 /* CRYPTO_STATIC_MUTEX_lock_write locks |lock| such that no other thread has
  * any type of lock on it.  The |lock| variable does not need to be initialised
  * by any function, but must have been statically initialised with
  * |CRYPTO_STATIC_MUTEX_INIT|. */
-void CRYPTO_STATIC_MUTEX_lock_write(struct CRYPTO_STATIC_MUTEX *lock);
+OPENSSL_EXPORT void CRYPTO_STATIC_MUTEX_lock_write(
+    struct CRYPTO_STATIC_MUTEX *lock);
 
 /* CRYPTO_STATIC_MUTEX_unlock unlocks |lock|. */
-void CRYPTO_STATIC_MUTEX_unlock(struct CRYPTO_STATIC_MUTEX *lock);
+OPENSSL_EXPORT void CRYPTO_STATIC_MUTEX_unlock(
+    struct CRYPTO_STATIC_MUTEX *lock);
 
 
 /* Thread local storage. */
@@ -427,6 +455,7 @@ void CRYPTO_STATIC_MUTEX_unlock(struct CRYPTO_STATIC_MUTEX *lock);
 typedef enum {
   OPENSSL_THREAD_LOCAL_ERR = 0,
   OPENSSL_THREAD_LOCAL_RAND,
+  OPENSSL_THREAD_LOCAL_URANDOM_BUF,
   OPENSSL_THREAD_LOCAL_TEST,
   NUM_OPENSSL_THREAD_LOCALS,
 } thread_local_data_t;
@@ -468,9 +497,14 @@ typedef struct crypto_ex_data_func_st CRYPTO_EX_DATA_FUNCS;
 typedef struct {
   struct CRYPTO_STATIC_MUTEX lock;
   STACK_OF(CRYPTO_EX_DATA_FUNCS) *meth;
+  /* num_reserved is one if the ex_data index zero is reserved for legacy
+   * |TYPE_get_app_data| functions. */
+  uint8_t num_reserved;
 } CRYPTO_EX_DATA_CLASS;
 
-#define CRYPTO_EX_DATA_CLASS_INIT {CRYPTO_STATIC_MUTEX_INIT, NULL}
+#define CRYPTO_EX_DATA_CLASS_INIT {CRYPTO_STATIC_MUTEX_INIT, NULL, 0}
+#define CRYPTO_EX_DATA_CLASS_INIT_WITH_APP_DATA \
+    {CRYPTO_STATIC_MUTEX_INIT, NULL, 1}
 
 /* CRYPTO_get_ex_new_index allocates a new index for |ex_data_class| and writes
  * it to |*out_index|. Each class of object should provide a wrapper function
@@ -478,8 +512,7 @@ typedef struct {
  * zero otherwise. */
 OPENSSL_EXPORT int CRYPTO_get_ex_new_index(CRYPTO_EX_DATA_CLASS *ex_data_class,
                                            int *out_index, long argl,
-                                           void *argp, CRYPTO_EX_new *new_func,
-                                           CRYPTO_EX_dup *dup_func,
+                                           void *argp, CRYPTO_EX_dup *dup_func,
                                            CRYPTO_EX_free *free_func);
 
 /* CRYPTO_set_ex_data sets an extra data pointer on a given object. Each class
@@ -491,11 +524,8 @@ OPENSSL_EXPORT int CRYPTO_set_ex_data(CRYPTO_EX_DATA *ad, int index, void *val);
  * function. */
 OPENSSL_EXPORT void *CRYPTO_get_ex_data(const CRYPTO_EX_DATA *ad, int index);
 
-/* CRYPTO_new_ex_data initialises a newly allocated |CRYPTO_EX_DATA| which is
- * embedded inside of |obj| which is of class |ex_data_class|. Returns one on
- * success and zero otherwise. */
-OPENSSL_EXPORT int CRYPTO_new_ex_data(CRYPTO_EX_DATA_CLASS *ex_data_class,
-                                      void *obj, CRYPTO_EX_DATA *ad);
+/* CRYPTO_new_ex_data initialises a newly allocated |CRYPTO_EX_DATA|. */
+OPENSSL_EXPORT void CRYPTO_new_ex_data(CRYPTO_EX_DATA *ad);
 
 /* CRYPTO_dup_ex_data duplicates |from| into a freshly allocated
  * |CRYPTO_EX_DATA|, |to|. Both of which are inside objects of the given

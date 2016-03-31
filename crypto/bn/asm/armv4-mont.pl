@@ -79,7 +79,7 @@ $_n0="$num,#14*4";
 $_num="$num,#15*4";	$_bpend=$_num;
 
 $code=<<___;
-#include "arm_arch.h"
+#include <openssl/arm_arch.h>
 
 .text
 .code	32
@@ -91,7 +91,6 @@ $code=<<___;
 #endif
 
 .global	bn_mul_mont
-.hidden	bn_mul_mont
 .type	bn_mul_mont,%function
 
 .align	5

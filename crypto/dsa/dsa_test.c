@@ -65,8 +65,6 @@
 #include <openssl/crypto.h>
 #include <openssl/err.h>
 
-#include "internal.h"
-
 
 static int dsa_cb(int p, int n, BN_GENCB *arg);
 
@@ -238,8 +236,10 @@ static int test_generate(FILE *out) {
     goto end;
   }
 
-  DSA_generate_key(dsa);
-  DSA_sign(0, fips_digest, sizeof(fips_digest), sig, &siglen, dsa);
+  if (!DSA_generate_key(dsa) ||
+      !DSA_sign(0, fips_digest, sizeof(fips_digest), sig, &siglen, dsa)) {
+    goto end;
+  }
   if (DSA_verify(0, fips_digest, sizeof(fips_digest), sig, siglen, dsa) == 1) {
     ok = 1;
   } else {

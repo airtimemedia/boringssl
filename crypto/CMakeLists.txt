@@ -1,4 +1,4 @@
-include_directories(. ../include)
+include_directories(../include)
 
 if(APPLE)
   if (${ARCH} STREQUAL "x86")
@@ -57,7 +57,6 @@ if (${ARCH} STREQUAL "x86_64")
   set(
     CRYPTO_ARCH_SOURCES
 
-    cpu-x86_64-asm.${ASM_EXT}
     cpu-intel.c
   )
 endif()
@@ -66,7 +65,6 @@ if (${ARCH} STREQUAL "x86")
   set(
     CRYPTO_ARCH_SOURCES
 
-    cpu-x86-asm.${ASM_EXT}
     cpu-intel.c
   )
 endif()
@@ -107,6 +105,7 @@ add_subdirectory(rc4)
 add_subdirectory(conf)
 add_subdirectory(chacha)
 add_subdirectory(poly1305)
+add_subdirectory(curve25519)
 
 # Level 1, depends only on 0.*
 add_subdirectory(digest)
@@ -145,15 +144,17 @@ add_library(
   crypto
 
   crypto.c
+  directory_posix.c
+  directory_win.c
+  ex_data.c
   mem.c
+  refcount_c11.c
+  refcount_lock.c
   thread.c
   thread_none.c
   thread_pthread.c
   thread_win.c
-  ex_data.c
   time_support.c
-  directory_posix.c
-  directory_win.c
 
   ${CRYPTO_ARCH_SOURCES}
 
@@ -174,6 +175,7 @@ add_library(
   $<TARGET_OBJECTS:conf>
   $<TARGET_OBJECTS:chacha>
   $<TARGET_OBJECTS:poly1305>
+  $<TARGET_OBJECTS:curve25519>
   $<TARGET_OBJECTS:buf>
   $<TARGET_OBJECTS:bn>
   $<TARGET_OBJECTS:bio>
@@ -205,21 +207,33 @@ add_executable(
   constant_time_test
 
   constant_time_test.c
+
+  $<TARGET_OBJECTS:test_support>
 )
 
 set_executable_props(constant_time_test)
 
 target_link_libraries(constant_time_test crypto)
+add_dependencies(all_tests constant_time_test)
 
 add_executable(
   thread_test
 
   thread_test.c
+
+  $<TARGET_OBJECTS:test_support>
 )
 
 target_link_libraries(thread_test crypto)
 
 set_executable_props(thread_test)
+add_dependencies(all_tests thread_test)
 
-perlasm(cpu-x86_64-asm.${ASM_EXT} cpu-x86_64-asm.pl)
-perlasm(cpu-x86-asm.${ASM_EXT} cpu-x86-asm.pl)
+add_executable(
+  refcount_test
+
+  refcount_test.c
+)
+
+target_link_libraries(refcount_test crypto)
+add_dependencies(all_tests refcount_test)

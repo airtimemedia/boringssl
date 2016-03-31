@@ -233,15 +233,28 @@ static int TestDigest(const TestVector *test) {
   return true;
 }
 
+static int TestGetters() {
+  if (EVP_get_digestbyname("RSA-SHA512") == NULL ||
+      EVP_get_digestbyname("sha512WithRSAEncryption") == NULL ||
+      EVP_get_digestbyname("nonsense") != NULL) {
+    return false;
+  }
+
+  return true;
+}
+
 int main(void) {
   CRYPTO_library_init();
-  ERR_load_crypto_strings();
 
   for (size_t i = 0; i < sizeof(kTestVectors) / sizeof(kTestVectors[0]); i++) {
     if (!TestDigest(&kTestVectors[i])) {
       fprintf(stderr, "Test %d failed\n", (int)i);
       return 1;
     }
+  }
+
+  if (!TestGetters()) {
+    return 1;
   }
 
   printf("PASS\n");

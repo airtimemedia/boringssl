@@ -21,6 +21,10 @@
  * mem.h. */
 #include <openssl/mem.h>
 
+/* Upstream OpenSSL defines |CRYPTO_LOCK|, etc., in crypto.h rather than
+ * thread.h. */
+#include <openssl/thread.h>
+
 
 #if defined(__cplusplus)
 extern "C" {
@@ -38,7 +42,9 @@ OPENSSL_EXPORT void CRYPTO_library_init(void);
 
 /* Deprecated functions. */
 
-#define OPENSSL_VERSION_TEXT "BoringSSL"
+/* OPENSSL_VERSION_TEXT contains a string the identifies the version of
+ * “OpenSSL”. node.js requires a version number in this text. */
+#define OPENSSL_VERSION_TEXT "OpenSSL 1.0.2 (compatible; BoringSSL)"
 
 #define SSLEAY_VERSION 0
 
@@ -46,17 +52,22 @@ OPENSSL_EXPORT void CRYPTO_library_init(void);
  * "BoringSSL". */
 OPENSSL_EXPORT const char *SSLeay_version(int unused);
 
-/* SSLeay is a compatibility function that returns the string "BoringSSL". */
-OPENSSL_EXPORT const char *SSLeay(void);
+/* SSLeay is a compatibility function that returns OPENSSL_VERSION_NUMBER from
+ * base.h. */
+OPENSSL_EXPORT unsigned long SSLeay(void);
+
+/* CRYPTO_malloc_init returns one. */
+OPENSSL_EXPORT int CRYPTO_malloc_init(void);
+
+/* ENGINE_load_builtin_engines does nothing. */
+OPENSSL_EXPORT void ENGINE_load_builtin_engines(void);
+
+/* OPENSSL_load_builtin_modules does nothing. */
+OPENSSL_EXPORT void OPENSSL_load_builtin_modules(void);
 
 
 #if defined(__cplusplus)
 }  /* extern C */
 #endif
-
-#define CRYPTO_F_CRYPTO_get_ex_new_index 100
-#define CRYPTO_F_CRYPTO_set_ex_data 101
-#define CRYPTO_F_get_class 102
-#define CRYPTO_F_get_func_pointers 103
 
 #endif  /* OPENSSL_HEADER_CRYPTO_H */

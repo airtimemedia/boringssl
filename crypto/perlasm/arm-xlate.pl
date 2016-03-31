@@ -55,7 +55,9 @@ my $globl = sub {
 			      };
     }
 
-    $ret = ".globl	$name" if (!$ret);
+    $ret = ".globl	$name\n";
+    # All symbols in assembly files are hidden.
+    $ret .= &$hidden($name);
     $$global = $name;
     $ret;
 };
@@ -116,6 +118,9 @@ sub expand_line {
     return $line;
 }
 
+print "#if defined(__arm__)\n" if ($flavour eq "linux32");
+print "#if defined(__aarch64__)\n" if ($flavour eq "linux64");
+
 while($line=<>) {
 
     if ($line =~ m/^\s*(#|@|\/\/)/)	{ print $line; next; }
@@ -161,5 +166,7 @@ while($line=<>) {
     print $line if ($line);
     print "\n";
 }
+
+print "#endif\n" if ($flavour eq "linux32" || $flavour eq "linux64");
 
 close STDOUT;

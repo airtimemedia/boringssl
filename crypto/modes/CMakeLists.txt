@@ -1,4 +1,4 @@
-include_directories(. .. ../../include)
+include_directories(../../include)
 
 if (${ARCH} STREQUAL "x86_64")
   set(
@@ -58,8 +58,11 @@ add_executable(
   gcm_test
 
   gcm_test.c
+
+  $<TARGET_OBJECTS:test_support>
 )
 
 set_executable_props(gcm_test)
 
 target_link_libraries(gcm_test crypto)
+add_dependencies(all_tests gcm_test)

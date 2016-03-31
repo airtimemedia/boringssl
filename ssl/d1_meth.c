@@ -1,4 +1,3 @@
-/* ssl/d1_meth.h */
 /*
  * DTLS implementation written by Nagendra Modadugu
  * (nagendra@cs.stanford.edu) for the OpenSSL project 2005. 
@@ -55,6 +54,8 @@
  * (eay@cryptsoft.com).  This product includes software written by Tim
  * Hudson (tjh@cryptsoft.com). */
 
+#include <openssl/ssl.h>
+
 #include "internal.h"
 
 
@@ -64,21 +65,13 @@ static const SSL_PROTOCOL_METHOD DTLS_protocol_method = {
     dtls1_free,
     dtls1_accept,
     dtls1_connect,
-    ssl3_read,
-    ssl3_peek,
-    ssl3_write,
-    dtls1_shutdown,
-    ssl3_renegotiate,
-    ssl3_renegotiate_check,
     dtls1_get_message,
-    dtls1_read_bytes,
-    dtls1_write_app_data_bytes,
+    dtls1_read_app_data,
+    dtls1_read_change_cipher_spec,
+    dtls1_read_close_notify,
+    dtls1_write_app_data,
     dtls1_dispatch_alert,
-    ssl3_ctrl,
-    ssl3_ctx_ctrl,
-    ssl3_pending,
-    ssl3_num_ciphers,
-    dtls1_get_cipher,
+    dtls1_supports_cipher,
     DTLS1_HM_HEADER_LENGTH,
     dtls1_set_handshake_header,
     dtls1_handshake_write,
