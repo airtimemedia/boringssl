@@ -39,6 +39,7 @@ add_executable(
 )
 
 set_executable_props(example_mul)
+link_cplusplus(example_mul)
 
 add_executable(
   ec_test

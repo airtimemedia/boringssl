@@ -212,6 +212,7 @@ add_executable(
 )
 
 set_executable_props(constant_time_test)
+link_cplusplus(constant_time_test)
 
 target_link_libraries(constant_time_test crypto)
 add_dependencies(all_tests constant_time_test)
@@ -227,6 +228,7 @@ add_executable(
 target_link_libraries(thread_test crypto)
 
 set_executable_props(thread_test)
+link_cplusplus(thread_test)
 add_dependencies(all_tests thread_test)
 
 add_executable(

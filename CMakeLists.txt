@@ -178,6 +178,14 @@ macro(set_executable_props name)
 	endif()
 endmacro()
 
+# This links against c++ library since xcode uses c compiler to link where it should use c++ compiler
+macro(link_cplusplus name)
+  if(CMAKE_GENERATOR MATCHES Xcode)
+    target_link_libraries(${name} c++)
+    set_property(TARGET ${name} APPEND_STRING PROPERTY COMPILE_FLAGS "-stdlib=libc++")
+  endif()
+endmacro()
+
 # Declare a dummy target to build all unit tests. Test targets should inject
 # themselves as dependencies next to the target definition.
 add_custom_target(all_tests)

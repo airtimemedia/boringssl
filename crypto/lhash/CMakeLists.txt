@@ -17,6 +17,7 @@ add_executable(
 )
 
 set_executable_props(lhash_test)
+link_cplusplus(lhash_test)
 
 target_link_libraries(lhash_test crypto)
 add_dependencies(all_tests lhash_test)

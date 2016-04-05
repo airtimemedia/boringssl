@@ -73,6 +73,7 @@ add_executable(
 )
 
 set_executable_props(pkcs7_test)
+link_cplusplus(pkcs7_test)
 
 target_link_libraries(pkcs7_test crypto)
 target_link_libraries(x509_test crypto)

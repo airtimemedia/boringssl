@@ -63,6 +63,7 @@ add_executable(
 )
 
 set_executable_props(gcm_test)
+link_cplusplus(gcm_test)
 
 target_link_libraries(gcm_test crypto)
 add_dependencies(all_tests gcm_test)
