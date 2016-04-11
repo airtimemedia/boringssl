@@ -27,6 +27,8 @@ add_executable(
   pkcs8_test.cc
 )
 
+set_executable_props(pkcs8_test)
+
 target_link_libraries(pkcs8_test crypto)
 target_link_libraries(pkcs12_test crypto)
 add_dependencies(all_tests pkcs8_test pkcs12_test)

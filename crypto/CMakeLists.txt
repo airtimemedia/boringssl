@@ -237,5 +237,8 @@ add_executable(
   refcount_test.c
 )
 
+set_executable_props(refcount_test)
+link_cplusplus(refcount_test)
+
 target_link_libraries(refcount_test crypto)
 add_dependencies(all_tests refcount_test)

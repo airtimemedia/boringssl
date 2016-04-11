@@ -27,5 +27,7 @@ add_executable(
   $<TARGET_OBJECTS:test_support>
 )
 
+set_executable_props(poly1305_test)
+
 target_link_libraries(poly1305_test crypto)
 add_dependencies(all_tests poly1305_test)

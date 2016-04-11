@@ -34,6 +34,8 @@ add_executable(
   $<TARGET_OBJECTS:test_support>
 )
 
+set_executable_props(ed25519_test)
+
 target_link_libraries(ed25519_test crypto)
 add_dependencies(all_tests ed25519_test)
 
@@ -42,6 +44,8 @@ add_executable(
 
   x25519_test.cc
 )
+
+set_executable_props(x25519_test)
 
 target_link_libraries(x25519_test crypto)
 add_dependencies(all_tests x25519_test)

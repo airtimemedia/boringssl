@@ -64,6 +64,9 @@ add_executable(
   $<TARGET_OBJECTS:test_support>
 )
 
+set_executable_props(pkcs7_test)
+link_cplusplus(pkcs7_test)
+
 add_executable(
   x509_test
 
@@ -72,8 +75,7 @@ add_executable(
   $<TARGET_OBJECTS:test_support>
 )
 
-set_executable_props(pkcs7_test)
-link_cplusplus(pkcs7_test)
+set_executable_props(x509_test)
 
 target_link_libraries(pkcs7_test crypto)
 target_link_libraries(x509_test crypto)

@@ -68,5 +68,7 @@ add_executable(
   $<TARGET_OBJECTS:test_support>
 )
 
+set_executable_props(aes_test)
+
 target_link_libraries(aes_test crypto)
 add_dependencies(all_tests aes_test)
