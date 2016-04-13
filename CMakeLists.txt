@@ -207,12 +207,14 @@ if (NOT ${CMAKE_VERSION} VERSION_LESS "3.2")
   set(MAYBE_USES_TERMINAL USES_TERMINAL)
 endif()
 
-add_custom_target(
-    run_tests
-    COMMAND ${GO_EXECUTABLE} run util/all_tests.go -build-dir
-            ${CMAKE_BINARY_DIR}
-    COMMAND cd ssl/test/runner
-    COMMAND ${GO_EXECUTABLE} test -shim-path $<TARGET_FILE:bssl_shim>
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    DEPENDS all_tests bssl_shim
-    ${MAYBE_USES_TERMINAL})
+if (NOT ANDROID)
+  add_custom_target(
+      run_tests
+      COMMAND ${GO_EXECUTABLE} run util/all_tests.go -build-dir
+              ${CMAKE_BINARY_DIR}
+      COMMAND cd ssl/test/runner
+      COMMAND ${GO_EXECUTABLE} test -shim-path $<TARGET_FILE:bssl_shim>
+      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+      DEPENDS all_tests bssl_shim
+      ${MAYBE_USES_TERMINAL})
+endif()
