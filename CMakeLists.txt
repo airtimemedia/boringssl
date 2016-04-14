@@ -148,12 +148,12 @@ if (${BORINGSSL_NO_ASM})
 	set(IOS 1)
 endif()
 
-if (ANDROID AND ${ARCH} STREQUAL "arm")
-  # The Android-NDK CMake files somehow fail to set the -march flag for
-  # assembly files. Without this flag, the compiler believes that it's
-  # building for ARMv5.
-  set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -march=${CMAKE_SYSTEM_PROCESSOR}")
-endif()
+#if (ANDROID AND ${ARCH} STREQUAL "arm")
+#  # The Android-NDK CMake files somehow fail to set the -march flag for
+#  # assembly files. Without this flag, the compiler believes that it's
+#  # building for ARMv5.
+#  set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -march=${CMAKE_SYSTEM_PROCESSOR}")
+#endif()
 
 if (${ARCH} STREQUAL "x86" AND APPLE)
   # With CMake 2.8.x, ${CMAKE_SYSTEM_PROCESSOR} evalutes to i386 on OS X,
