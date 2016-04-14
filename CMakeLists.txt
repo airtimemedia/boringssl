@@ -164,6 +164,7 @@ endif()
 
 if (OPENSSL_NO_ASM)
   add_definitions(-DOPENSSL_NO_ASM)
+  set(REAL_ARCH ${ARCH})
   set(ARCH "generic")
 endif()
 

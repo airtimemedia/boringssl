@@ -69,7 +69,7 @@ if (${ARCH} STREQUAL "x86")
   )
 endif()
 
-if (${ARCH} STREQUAL "arm")
+if (${ARCH} STREQUAL "arm" OR "${REAL_ARCH}" STREQUAL "arm")
   set(
     CRYPTO_ARCH_SOURCES
 
