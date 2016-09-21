@@ -176,6 +176,7 @@ macro(set_executable_props name)
                 # no underscores allowed in the bundle name
 		string(REGEX REPLACE "_" "" stripped_name ${name})
 		set_target_properties (${name} PROPERTIES MACOSX_BUNDLE_GUI_IDENTIFIER ${stripped_name})
+		set_target_properties (${name} PROPERTIES XCODE_ATTRIBUTE_DEVELOPMENT_TEAM ${BORINGSSL_DEVELOPMENT_TEAM})
 	endif()
 endmacro()
 
