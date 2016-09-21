@@ -170,6 +170,13 @@ endif()
 
 # This sets the correct properties on an executable so that it can be run on iOS
 macro(set_executable_props name)
+  if (IOS)
+    message("ios is set")
+  endif()
+  if (ANDROID)
+    message("android is set")
+  endif()
+
 	if (IOS)
 		set_target_properties (${name} PROPERTIES MACOSX_BUNDLE ON)
 		set_target_properties (${name} PROPERTIES XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer")
