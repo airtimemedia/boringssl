@@ -145,7 +145,6 @@ if (${BORINGSSL_NO_ASM})
 	# doesn't like some of the assembler directives in the provided ARM
 	# assembly
 	add_definitions(-DOPENSSL_NO_ASM)
-	set(IOS 1)
 endif()
 
 #if (ANDROID AND ${ARCH} STREQUAL "arm")
