@@ -145,7 +145,6 @@ if (${BORINGSSL_NO_ASM})
 	# doesn't like some of the assembler directives in the provided ARM
 	# assembly
 	add_definitions(-DOPENSSL_NO_ASM)
-	set(IOS 1)
 endif()
 
 #if (ANDROID AND ${ARCH} STREQUAL "arm")
@@ -170,13 +169,6 @@ endif()
 
 # This sets the correct properties on an executable so that it can be run on iOS
 macro(set_executable_props name)
-  if (IOS)
-    message("ios is set")
-  endif()
-  if (ANDROID)
-    message("android is set")
-  endif()
-
 	if (IOS)
 		set_target_properties (${name} PROPERTIES MACOSX_BUNDLE ON)
 		set_target_properties (${name} PROPERTIES XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer")
