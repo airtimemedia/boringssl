@@ -8,6 +8,8 @@ add_subdirectory(xts)
 
 add_library(
   decrepit
+  
+  dummy.c
 
   $<TARGET_OBJECTS:bio_decrepit>
   $<TARGET_OBJECTS:blowfish>
