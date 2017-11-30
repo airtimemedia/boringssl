@@ -9,6 +9,13 @@ add_subdirectory(xts)
 add_library(
   decrepit
 
+  # airtime: start
+  # DEVOPS-1090: libdecrepit.a is not created by Xcode generator
+  # unless it has a real source file (not just referencing TARGET_OBJECTS)
+  # See https://gitlab.kitware.com/cmake/cmake/issues/16524
+  airtime_dummy_file.c
+  # airtime: end
+
   $<TARGET_OBJECTS:bio_decrepit>
   $<TARGET_OBJECTS:blowfish>
   $<TARGET_OBJECTS:cast>
