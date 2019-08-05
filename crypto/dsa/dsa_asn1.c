@@ -75,7 +75,7 @@ static int parse_integer(CBS *cbs, BIGNUM **out) {
 
 static int marshal_integer(CBB *cbb, BIGNUM *bn) {
   if (bn == NULL) {
-    /* A DSA object may be missing some components. */
+    // A DSA object may be missing some components.
     OPENSSL_PUT_ERROR(DSA, ERR_R_PASSED_NULL_PARAMETER);
     return 0;
   }
@@ -248,6 +248,7 @@ int i2d_DSA_SIG(const DSA_SIG *in, uint8_t **outp) {
   CBB cbb;
   if (!CBB_init(&cbb, 0) ||
       !DSA_SIG_marshal(&cbb, in)) {
+    CBB_cleanup(&cbb);
     return -1;
   }
   return CBB_finish_i2d(&cbb, outp);
@@ -275,6 +276,7 @@ int i2d_DSAPublicKey(const DSA *in, uint8_t **outp) {
   CBB cbb;
   if (!CBB_init(&cbb, 0) ||
       !DSA_marshal_public_key(&cbb, in)) {
+    CBB_cleanup(&cbb);
     return -1;
   }
   return CBB_finish_i2d(&cbb, outp);
@@ -302,6 +304,7 @@ int i2d_DSAPrivateKey(const DSA *in, uint8_t **outp) {
   CBB cbb;
   if (!CBB_init(&cbb, 0) ||
       !DSA_marshal_private_key(&cbb, in)) {
+    CBB_cleanup(&cbb);
     return -1;
   }
   return CBB_finish_i2d(&cbb, outp);
@@ -329,6 +332,7 @@ int i2d_DSAparams(const DSA *in, uint8_t **outp) {
   CBB cbb;
   if (!CBB_init(&cbb, 0) ||
       !DSA_marshal_parameters(&cbb, in)) {
+    CBB_cleanup(&cbb);
     return -1;
   }
   return CBB_finish_i2d(&cbb, outp);

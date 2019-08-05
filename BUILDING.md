@@ -2,9 +2,17 @@
 
 ## Build Prerequisites
 
-  * [CMake](https://cmake.org/download/) 2.8.8 or later is required.
+The standalone CMake build is primarily intended for developers. If embedding
+BoringSSL into another project with a pre-existing build system, see
+[INCORPORATING.md](/INCORPORATING.md).
 
-  * Perl 5.6.1 or later is required. On Windows,
+Unless otherwise noted, build tools must at most five years old, matching
+[Abseil guidelines](https://abseil.io/about/compatibility). If in doubt, use the
+most recent stable version of each tool.
+
+  * [CMake](https://cmake.org/download/) 3.0 or later is required.
+
+  * A recent version of Perl is required. On Windows,
     [Active State Perl](http://www.activestate.com/activeperl/) has been
     reported to work, as has MSYS Perl.
     [Strawberry Perl](http://strawberryperl.com/) also works but it adds GCC
@@ -13,33 +21,27 @@
     If Perl is not found by CMake, it may be configured explicitly by setting
     `PERL_EXECUTABLE`.
 
-  * On Windows you currently must use [Ninja](https://ninja-build.org/)
-    to build; on other platforms, it is not required, but recommended, because
-    it makes builds faster.
+  * Building with [Ninja](https://ninja-build.org/) instead of Make is
+    recommended, because it makes builds faster. On Windows, CMake's Visual
+    Studio generator may also work, but it not tested regularly and requires
+    recent versions of CMake for assembly support.
 
-  * If you need to build Ninja from source, then a recent version of
-    [Python](https://www.python.org/downloads/) is required (Python 2.7.5 works).
-
-  * On Windows only, [Yasm](http://yasm.tortall.net/) is required. If not found
+  * On Windows only, [NASM](https://www.nasm.us/) is required. If not found
     by CMake, it may be configured explicitly by setting
     `CMAKE_ASM_NASM_COMPILER`.
 
-  * A C compiler is required. On Windows, MSVC 12 (Visual Studio 2013) or later
-    with Platform SDK 8.1 or later are supported. Recent versions of GCC (4.8+)
-    and Clang should work on non-Windows platforms, and maybe on Windows too.
+  * C and C++ compilers with C++11 support are required. On Windows, MSVC 14
+    (Visual Studio 2015) or later with Platform SDK 8.1 or later are supported.
+    Recent versions of GCC (4.8+) and Clang should work on non-Windows
+    platforms, and maybe on Windows too.
 
-  * [Go](https://golang.org/dl/) is required. If not found by CMake, the go
-    executable may be configured explicitly by setting `GO_EXECUTABLE`.
+  * The most recent stable version of [Go](https://golang.org/dl/) is required.
+    Note Go is exempt from the five year support window. If not found by CMake,
+    the go executable may be configured explicitly by setting `GO_EXECUTABLE`.
 
-  * If you change crypto/chacha/chacha\_vec.c, you will need the
-    arm-linux-gnueabihf-gcc compiler:
-
-    ```
-    wget https://releases.linaro.org/14.11/components/toolchain/binaries/arm-linux-gnueabihf/gcc-linaro-4.9-2014.11-x86_64_arm-linux-gnueabihf.tar.xz && \
-    echo bc4ca2ced084d2dc12424815a4442e19cb1422db87068830305d90075feb1a3b  gcc-linaro-4.9-2014.11-x86_64_arm-linux-gnueabihf.tar.xz | sha256sum -c && \
-    tar xf gcc-linaro-4.9-2014.11-x86_64_arm-linux-gnueabihf.tar.xz && \
-    sudo mv gcc-linaro-4.9-2014.11-x86_64_arm-linux-gnueabihf /opt/
-    ```
+  * On x86_64 Linux, the tests have an optional
+    [libunwind](https://www.nongnu.org/libunwind/) dependency to test the
+    assembly more thoroughly.
 
 ## Building
 
@@ -85,22 +87,73 @@ for other variables which may be used to configure the build.
 
 ### Building for Android
 
-It's possible to build BoringSSL with the Android NDK using CMake. This has
-been tested with version 10d of the NDK.
+It's possible to build BoringSSL with the Android NDK using CMake. Recent
+versions of the NDK include a CMake toolchain file which works with CMake 3.6.0
+or later. This has been tested with version r16b of the NDK.
 
 Unpack the Android NDK somewhere and export `ANDROID_NDK` to point to the
-directory. Clone https://github.com/taka-no-me/android-cmake into `util/`.  Then
-make a build directory as above and run CMake *twice* like this:
+directory. Then make a build directory as above and run CMake like this:
 
-    cmake -DANDROID_NATIVE_API_LEVEL=android-9 \
-          -DANDROID_ABI=armeabi-v7a \
-          -DCMAKE_TOOLCHAIN_FILE=../util/android-cmake/android.toolchain.cmake \
+    cmake -DANDROID_ABI=armeabi-v7a \
+          -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK}/build/cmake/android.toolchain.cmake \
           -DANDROID_NATIVE_API_LEVEL=16 \
           -GNinja ..
 
-Once you've run that twice, Ninja should produce Android-compatible binaries.
-You can replace `armeabi-v7a` in the above with `arm64-v8a` to build aarch64
-binaries.
+Once you've run that, Ninja should produce Android-compatible binaries.  You
+can replace `armeabi-v7a` in the above with `arm64-v8a` and use API level 21 or
+higher to build aarch64 binaries.
+
+For other options, see the documentation in the toolchain file.
+
+To debug the resulting binaries on an Android device with `gdb`, run the
+commands below. Replace `ARCH` with the architecture of the target device, e.g.
+`arm` or `arm64`.
+
+    adb push ${ANDROID_NDK}/prebuilt/android-ARCH/gdbserver/gdbserver \
+        /data/local/tmp
+    adb forward tcp:5039 tcp:5039
+    adb shell /data/local/tmp/gdbserver :5039 /path/on/device/to/binary
+
+Then run the following in a separate shell. Replace `HOST` with the OS and
+architecture of the host machine, e.g. `linux-x86_64`.
+
+    ${ANDROID_NDK}/prebuilt/HOST/bin/gdb
+    target remote :5039  # in gdb
+
+### Building for iOS
+
+To build for iOS, pass `-DCMAKE_OSX_SYSROOT=iphoneos` and
+`-DCMAKE_OSX_ARCHITECTURES=ARCH` to CMake, where `ARCH` is the desired
+architecture, matching values used in the `-arch` flag in Apple's toolchain.
+
+Passing multiple architectures for a multiple-architecture build is not
+supported.
+
+### Building with Prefixed Symbols
+
+BoringSSL's build system has experimental support for adding a custom prefix to
+all symbols. This can be useful when linking multiple versions of BoringSSL in
+the same project to avoid symbol conflicts.
+
+In order to build with prefixed symbols, the `BORINGSSL_PREFIX` CMake variable
+should specify the prefix to add to all symbols, and the
+`BORINGSSL_PREFIX_SYMBOLS` CMake variable should specify the path to a file
+which contains a list of symbols which should be prefixed (one per line;
+comments are supported with `#`). In other words, `cmake ..
+-DBORINGSSL_PREFIX=MY_CUSTOM_PREFIX
+-DBORINGSSL_PREFIX_SYMBOLS=/path/to/symbols.txt` will configure the build to add
+the prefix `MY_CUSTOM_PREFIX` to all of the symbols listed in
+`/path/to/symbols.txt`.
+
+It is currently the caller's responsibility to create and maintain the list of
+symbols to be prefixed. Alternatively, `util/read_symbols.go` reads the list of
+exported symbols from a `.a` file, and can be used in a build script to generate
+the symbol list on the fly (by building without prefixing, using
+`read_symbols.go` to construct a symbol list, and then building again with
+prefixing).
+
+This mechanism is under development and may change over time. Please contact the
+BoringSSL maintainers if making use of it.
 
 ## Known Limitations on Windows
 
@@ -122,16 +175,18 @@ ARM, unlike Intel, does not have an instruction that allows applications to
 discover the capabilities of the processor. Instead, the capability information
 has to be provided by the operating system somehow.
 
-BoringSSL will try to use `getauxval` to discover the capabilities and, failing
-that, will probe for NEON support by executing a NEON instruction and handling
-any illegal-instruction signal. But some environments don't support that sort
-of thing and, for them, it's possible to configure the CPU capabilities
-at compile time.
+By default, on Linux-based systems, BoringSSL will try to use `getauxval` and
+`/proc` to discover the capabilities. But some environments don't support that
+sort of thing and, for them, it's possible to configure the CPU capabilities at
+compile time.
 
-If you define `OPENSSL_STATIC_ARMCAP` then you can define any of the following
-to enabling the corresponding ARM feature.
+On iOS or builds which define `OPENSSL_STATIC_ARMCAP`, features will be
+determined based on the `__ARM_NEON__` and `__ARM_FEATURE_CRYPTO` preprocessor
+symbols reported by the compiler. These values are usually controlled by the
+`-march` flag. You can also define any of the following to enable the
+corresponding ARM feature.
 
-  * `OPENSSL_STATIC_ARMCAP_NEON` or `__ARM_NEON__` (note that the latter is set by compilers when NEON support is enabled).
+  * `OPENSSL_STATIC_ARMCAP_NEON`
   * `OPENSSL_STATIC_ARMCAP_AES`
   * `OPENSSL_STATIC_ARMCAP_SHA1`
   * `OPENSSL_STATIC_ARMCAP_SHA256`
@@ -140,7 +195,14 @@ to enabling the corresponding ARM feature.
 Note that if a feature is enabled in this way, but not actually supported at
 run-time, BoringSSL will likely crash.
 
-# Running tests
+## Binary Size
+
+The implementations of some algorithms require a trade-off between binary size
+and performance. For instance, BoringSSL's fastest P-256 implementation uses a
+148 KiB pre-computed table. To optimize instead for binary size, pass
+`-DOPENSSL_SMALL=1` to CMake or define the `OPENSSL_SMALL` preprocessor symbol.
+
+# Running Tests
 
 There are two sets of tests: the C/C++ tests and the blackbox tests. For former
 are built by Ninja and can be run from the top-level directory with `go run

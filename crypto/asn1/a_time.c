@@ -63,7 +63,6 @@
 #include <openssl/buf.h>
 #include <openssl/err.h>
 #include <openssl/mem.h>
-#include <openssl/time_support.h>
 
 #include "asn1_locl.h"
 
@@ -76,17 +75,6 @@
 IMPLEMENT_ASN1_MSTRING(ASN1_TIME, B_ASN1_TIME)
 
 IMPLEMENT_ASN1_FUNCTIONS(ASN1_TIME)
-
-#if 0
-int i2d_ASN1_TIME(ASN1_TIME *a, unsigned char **pp)
-{
-    if (a->type == V_ASN1_UTCTIME || a->type == V_ASN1_GENERALIZEDTIME)
-        return (i2d_ASN1_bytes((ASN1_STRING *)a, pp,
-                               a->type, V_ASN1_UNIVERSAL));
-    OPENSSL_PUT_ERROR(ASN1, ASN1_R_EXPECTING_A_TIME);
-    return -1;
-}
-#endif
 
 ASN1_TIME *ASN1_TIME_set(ASN1_TIME *s, time_t t)
 {
@@ -126,7 +114,7 @@ int ASN1_TIME_check(ASN1_TIME *t)
 ASN1_GENERALIZEDTIME *ASN1_TIME_to_generalizedtime(ASN1_TIME *t,
                                                    ASN1_GENERALIZEDTIME **out)
 {
-    ASN1_GENERALIZEDTIME *ret;
+    ASN1_GENERALIZEDTIME *ret = NULL;
     char *str;
     int newlen;
 
@@ -135,22 +123,21 @@ ASN1_GENERALIZEDTIME *ASN1_TIME_to_generalizedtime(ASN1_TIME *t,
 
     if (!out || !*out) {
         if (!(ret = ASN1_GENERALIZEDTIME_new()))
-            return NULL;
-        if (out)
-            *out = ret;
-    } else
+            goto err;
+    } else {
         ret = *out;
+    }
 
     /* If already GeneralizedTime just copy across */
     if (t->type == V_ASN1_GENERALIZEDTIME) {
         if (!ASN1_STRING_set(ret, t->data, t->length))
-            return NULL;
-        return ret;
+            goto err;
+        goto done;
     }
 
     /* grow the string */
     if (!ASN1_STRING_set(ret, NULL, t->length + 2))
-        return NULL;
+        goto err;
     /* ASN1_STRING_set() allocated 'len + 1' bytes. */
     newlen = t->length + 2 + 1;
     str = (char *)ret->data;
@@ -162,8 +149,17 @@ ASN1_GENERALIZEDTIME *ASN1_TIME_to_generalizedtime(ASN1_TIME *t,
 
     BUF_strlcat(str, (char *)t->data, newlen);
 
-    return ret;
+ done:
+   if (out != NULL && *out == NULL)
+       *out = ret;
+   return ret;
+
+ err:
+    if (out == NULL || *out != ret)
+        ASN1_GENERALIZEDTIME_free(ret);
+    return NULL;
 }
+
 
 int ASN1_TIME_set_string(ASN1_TIME *s, const char *str)
 {

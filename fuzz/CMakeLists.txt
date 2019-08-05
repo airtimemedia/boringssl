@@ -1,39 +1,30 @@
 include_directories(../include)
 
-add_executable(
-  privkey
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-missing-prototypes")
 
-  privkey.cc
-)
+macro(fuzzer name)
+  add_executable(${name} ${name}.cc)
+  add_dependencies(${name} global_target)
+  target_link_libraries(${name} crypto ${ARGN})
+  if(LIBFUZZER_FROM_DEPS)
+    set_target_properties(${name} PROPERTIES LINK_FLAGS "-fsanitize=fuzzer-no-link")
+    target_link_libraries(${name} Fuzzer)
+  else()
+    set_target_properties(${name} PROPERTIES LINK_FLAGS "-fsanitize=fuzzer")
+  endif()
+endmacro()
 
-target_link_libraries(privkey Fuzzer)
-target_link_libraries(privkey crypto)
-
-add_executable(
-  cert
-
-  cert.cc
-)
-
-target_link_libraries(cert Fuzzer)
-target_link_libraries(cert crypto)
-
-add_executable(
-  server
-
-  server.cc
-)
-
-target_link_libraries(server Fuzzer)
-target_link_libraries(server crypto)
-target_link_libraries(server ssl)
-
-add_executable(
-  client
-
-  client.cc
-)
-
-target_link_libraries(client Fuzzer)
-target_link_libraries(client crypto)
-target_link_libraries(client ssl)
+fuzzer(arm_cpuinfo)
+fuzzer(bn_mod_exp)
+fuzzer(privkey)
+fuzzer(cert)
+fuzzer(spki)
+fuzzer(pkcs8)
+fuzzer(pkcs12)
+fuzzer(read_pem)
+fuzzer(server ssl)
+fuzzer(client ssl)
+fuzzer(dtls_server ssl)
+fuzzer(dtls_client ssl)
+fuzzer(ssl_ctx_api ssl)
+fuzzer(session ssl)

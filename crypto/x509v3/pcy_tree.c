@@ -66,6 +66,7 @@
 #include <openssl/x509v3.h>
 
 #include "pcy_int.h"
+#include "../internal.h"
 
 /*
  * Enable this to print out the complete policy tree at various point during
@@ -135,11 +136,14 @@ static void tree_print(char *str, X509_POLICY_TREE *tree,
 
 #endif
 
-/*
- * Initialize policy tree. Return values: 0 Some internal error occured. -1
- * Inconsistent or invalid extensions in certificates.  1 Tree initialized
- * OK.  2 Policy tree is empty.  5 Tree OK and requireExplicitPolicy true.  6
- * Tree empty and requireExplicitPolicy true.
+/*-
+ * Initialize policy tree. Return values:
+ *  0 Some internal error occurred.
+ * -1 Inconsistent or invalid extensions in certificates.
+ *  1 Tree initialized OK.
+ *  2 Policy tree is empty.
+ *  5 Tree OK and requireExplicitPolicy true.
+ *  6 Tree empty and requireExplicitPolicy true.
  */
 
 static int tree_init(X509_POLICY_TREE **ptree, STACK_OF(X509) *certs,
@@ -238,7 +242,7 @@ static int tree_init(X509_POLICY_TREE **ptree, STACK_OF(X509) *certs,
         return 0;
     }
 
-    memset(tree->levels, 0, n * sizeof(X509_POLICY_LEVEL));
+    OPENSSL_memset(tree->levels, 0, n * sizeof(X509_POLICY_LEVEL));
 
     tree->nlevel = n;
 
@@ -255,7 +259,8 @@ static int tree_init(X509_POLICY_TREE **ptree, STACK_OF(X509) *certs,
         level++;
         x = sk_X509_value(certs, i);
         cache = policy_cache_set(x);
-        level->cert = X509_up_ref(x);
+        X509_up_ref(x);
+        level->cert = x;
 
         if (!cache->anyPolicy)
             level->flags |= X509_V_FLAG_INHIBIT_ANY;
@@ -304,7 +309,7 @@ static int tree_init(X509_POLICY_TREE **ptree, STACK_OF(X509) *certs,
 }
 
 static int tree_link_matching_nodes(X509_POLICY_LEVEL *curr,
-                                    const X509_POLICY_DATA *data)
+                                    X509_POLICY_DATA *data)
 {
     X509_POLICY_LEVEL *last = curr - 1;
     X509_POLICY_NODE *node;
@@ -538,9 +543,11 @@ static int tree_add_auth_node(STACK_OF(X509_POLICY_NODE) **pnodes,
         *pnodes = policy_node_cmp_new();
         if (!*pnodes)
             return 0;
-    } else if (sk_X509_POLICY_NODE_find(*pnodes, NULL, pcy))
+    } else {
+      sk_X509_POLICY_NODE_sort(*pnodes);
+      if (sk_X509_POLICY_NODE_find(*pnodes, NULL, pcy))
         return 1;
-
+    }
     if (!sk_X509_POLICY_NODE_push(*pnodes, pcy))
         return 0;
 
@@ -718,10 +725,13 @@ void X509_policy_tree_free(X509_POLICY_TREE *tree)
 
 }
 
-/*
- * Application policy checking function. Return codes: 0 Internal Error.  1
- * Successful. -1 One or more certificates contain invalid or inconsistent
- * extensions -2 User constrained policy set empty and requireExplicit true.
+/*-
+ * Application policy checking function.
+ * Return codes:
+ *  0   Internal Error.
+ *  1   Successful.
+ * -1   One or more certificates contain invalid or inconsistent extensions
+ * -2   User constrained policy set empty and requireExplicit true.
  */
 
 int X509_policy_check(X509_POLICY_TREE **ptree, int *pexplicit_policy,
@@ -729,6 +739,7 @@ int X509_policy_check(X509_POLICY_TREE **ptree, int *pexplicit_policy,
                       STACK_OF(ASN1_OBJECT) *policy_oids, unsigned int flags)
 {
     int ret;
+    int calc_ret;
     X509_POLICY_TREE *tree = NULL;
     STACK_OF(X509_POLICY_NODE) *nodes, *auth_nodes = NULL;
     *ptree = NULL;
@@ -797,16 +808,19 @@ int X509_policy_check(X509_POLICY_TREE **ptree, int *pexplicit_policy,
 
     /* Tree is not empty: continue */
 
-    ret = tree_calculate_authority_set(tree, &auth_nodes);
+    calc_ret = tree_calculate_authority_set(tree, &auth_nodes);
+
+    if (!calc_ret)
+        goto error;
+
+    ret = tree_calculate_user_set(tree, policy_oids, auth_nodes);
+
+    if (calc_ret == 2)
+        sk_X509_POLICY_NODE_free(auth_nodes);
 
     if (!ret)
         goto error;
 
-    if (!tree_calculate_user_set(tree, policy_oids, auth_nodes))
-        goto error;
-
-    if (ret == 2)
-        sk_X509_POLICY_NODE_free(auth_nodes);
 
     if (tree)
         *ptree = tree;

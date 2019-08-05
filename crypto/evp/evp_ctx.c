@@ -56,25 +56,25 @@
 
 #include <openssl/evp.h>
 
-#include <stdio.h>
 #include <string.h>
 
+#include <openssl/digest.h>
 #include <openssl/err.h>
 #include <openssl/mem.h>
-#include <openssl/obj.h>
 
+#include "../internal.h"
 #include "internal.h"
 
 
 static const EVP_PKEY_METHOD *const evp_methods[] = {
-  &rsa_pkey_meth,
-  &ec_pkey_meth,
+    &rsa_pkey_meth,
+    &ec_pkey_meth,
+    &ed25519_pkey_meth,
+    &x25519_pkey_meth,
 };
 
 static const EVP_PKEY_METHOD *evp_pkey_meth_find(int type) {
-  unsigned i;
-
-  for (i = 0; i < sizeof(evp_methods)/sizeof(EVP_PKEY_METHOD*); i++) {
+  for (size_t i = 0; i < sizeof(evp_methods)/sizeof(EVP_PKEY_METHOD*); i++) {
     if (evp_methods[i]->pkey_id == type) {
       return evp_methods[i];
     }
@@ -98,8 +98,7 @@ static EVP_PKEY_CTX *evp_pkey_ctx_new(EVP_PKEY *pkey, ENGINE *e, int id) {
 
   if (pmeth == NULL) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_UNSUPPORTED_ALGORITHM);
-    const char *name = OBJ_nid2sn(id);
-    ERR_add_error_dataf("algorithm %d (%s)", id, name);
+    ERR_add_error_dataf("algorithm %d", id);
     return NULL;
   }
 
@@ -108,14 +107,15 @@ static EVP_PKEY_CTX *evp_pkey_ctx_new(EVP_PKEY *pkey, ENGINE *e, int id) {
     OPENSSL_PUT_ERROR(EVP, ERR_R_MALLOC_FAILURE);
     return NULL;
   }
-  memset(ret, 0, sizeof(EVP_PKEY_CTX));
+  OPENSSL_memset(ret, 0, sizeof(EVP_PKEY_CTX));
 
   ret->engine = e;
   ret->pmeth = pmeth;
   ret->operation = EVP_PKEY_OP_UNDEFINED;
 
   if (pkey) {
-    ret->pkey = EVP_PKEY_up_ref(pkey);
+    EVP_PKEY_up_ref(pkey);
+    ret->pkey = pkey;
   }
 
   if (pmeth->init) {
@@ -149,46 +149,40 @@ void EVP_PKEY_CTX_free(EVP_PKEY_CTX *ctx) {
   OPENSSL_free(ctx);
 }
 
-EVP_PKEY_CTX *EVP_PKEY_CTX_dup(EVP_PKEY_CTX *pctx) {
-  EVP_PKEY_CTX *rctx;
-
-  if (!pctx->pmeth || !pctx->pmeth->copy) {
+EVP_PKEY_CTX *EVP_PKEY_CTX_dup(EVP_PKEY_CTX *ctx) {
+  if (!ctx->pmeth || !ctx->pmeth->copy) {
     return NULL;
   }
 
-  rctx = OPENSSL_malloc(sizeof(EVP_PKEY_CTX));
-  if (!rctx) {
+  EVP_PKEY_CTX *ret = OPENSSL_malloc(sizeof(EVP_PKEY_CTX));
+  if (!ret) {
     return NULL;
   }
 
-  memset(rctx, 0, sizeof(EVP_PKEY_CTX));
+  OPENSSL_memset(ret, 0, sizeof(EVP_PKEY_CTX));
 
-  rctx->pmeth = pctx->pmeth;
-  rctx->engine = pctx->engine;
-  rctx->operation = pctx->operation;
+  ret->pmeth = ctx->pmeth;
+  ret->engine = ctx->engine;
+  ret->operation = ctx->operation;
 
-  if (pctx->pkey) {
-    rctx->pkey = EVP_PKEY_up_ref(pctx->pkey);
-    if (rctx->pkey == NULL) {
-      goto err;
-    }
+  if (ctx->pkey != NULL) {
+    EVP_PKEY_up_ref(ctx->pkey);
+    ret->pkey = ctx->pkey;
   }
 
-  if (pctx->peerkey) {
-    rctx->peerkey = EVP_PKEY_up_ref(pctx->peerkey);
-    if (rctx->peerkey == NULL) {
-      goto err;
-    }
+  if (ctx->peerkey != NULL) {
+    EVP_PKEY_up_ref(ctx->peerkey);
+    ret->peerkey = ctx->peerkey;
   }
 
-  if (pctx->pmeth->copy(rctx, pctx) > 0) {
-    return rctx;
+  if (ctx->pmeth->copy(ret, ctx) <= 0) {
+    ret->pmeth = NULL;
+    EVP_PKEY_CTX_free(ret);
+    OPENSSL_PUT_ERROR(EVP, ERR_LIB_EVP);
+    return NULL;
   }
 
-err:
-  EVP_PKEY_CTX_free(rctx);
-  OPENSSL_PUT_ERROR(EVP, ERR_LIB_EVP);
-  return NULL;
+  return ret;
 }
 
 EVP_PKEY *EVP_PKEY_CTX_get0_pkey(EVP_PKEY_CTX *ctx) { return ctx->pkey; }
@@ -200,6 +194,7 @@ int EVP_PKEY_CTX_ctrl(EVP_PKEY_CTX *ctx, int keytype, int optype, int cmd,
     return 0;
   }
   if (keytype != -1 && ctx->pmeth->pkey_id != keytype) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
     return 0;
   }
 
@@ -217,7 +212,8 @@ int EVP_PKEY_CTX_ctrl(EVP_PKEY_CTX *ctx, int keytype, int optype, int cmd,
 }
 
 int EVP_PKEY_sign_init(EVP_PKEY_CTX *ctx) {
-  if (!ctx || !ctx->pmeth || !ctx->pmeth->sign) {
+  if (ctx == NULL || ctx->pmeth == NULL ||
+      (ctx->pmeth->sign == NULL && ctx->pmeth->sign_message == NULL)) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
     return 0;
   }
@@ -227,7 +223,7 @@ int EVP_PKEY_sign_init(EVP_PKEY_CTX *ctx) {
 }
 
 int EVP_PKEY_sign(EVP_PKEY_CTX *ctx, uint8_t *sig, size_t *sig_len,
-                  const uint8_t *data, size_t data_len) {
+                  const uint8_t *digest, size_t digest_len) {
   if (!ctx || !ctx->pmeth || !ctx->pmeth->sign) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
     return 0;
@@ -236,11 +232,12 @@ int EVP_PKEY_sign(EVP_PKEY_CTX *ctx, uint8_t *sig, size_t *sig_len,
     OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATON_NOT_INITIALIZED);
     return 0;
   }
-  return ctx->pmeth->sign(ctx, sig, sig_len, data, data_len);
+  return ctx->pmeth->sign(ctx, sig, sig_len, digest, digest_len);
 }
 
 int EVP_PKEY_verify_init(EVP_PKEY_CTX *ctx) {
-  if (!ctx || !ctx->pmeth || !ctx->pmeth->verify) {
+  if (ctx == NULL || ctx->pmeth == NULL ||
+      (ctx->pmeth->verify == NULL && ctx->pmeth->verify_message == NULL)) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
     return 0;
   }
@@ -249,7 +246,7 @@ int EVP_PKEY_verify_init(EVP_PKEY_CTX *ctx) {
 }
 
 int EVP_PKEY_verify(EVP_PKEY_CTX *ctx, const uint8_t *sig, size_t sig_len,
-                    const uint8_t *data, size_t data_len) {
+                    const uint8_t *digest, size_t digest_len) {
   if (!ctx || !ctx->pmeth || !ctx->pmeth->verify) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
     return 0;
@@ -258,7 +255,7 @@ int EVP_PKEY_verify(EVP_PKEY_CTX *ctx, const uint8_t *sig, size_t sig_len,
     OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATON_NOT_INITIALIZED);
     return 0;
   }
-  return ctx->pmeth->verify(ctx, sig, sig_len, data, data_len);
+  return ctx->pmeth->verify(ctx, sig, sig_len, digest, digest_len);
 }
 
 int EVP_PKEY_encrypt_init(EVP_PKEY_CTX *ctx) {
@@ -371,11 +368,11 @@ int EVP_PKEY_derive_set_peer(EVP_PKEY_CTX *ctx, EVP_PKEY *peer) {
     return 0;
   }
 
-  /* ran@cryptocom.ru: For clarity.  The error is if parameters in peer are
-   * present (!missing) but don't match.  EVP_PKEY_cmp_parameters may return
-   * 1 (match), 0 (don't match) and -2 (comparison is not defined).  -1
-   * (different key types) is impossible here because it is checked earlier.
-   * -2 is OK for us here, as well as 1, so we can check for 0 only. */
+  // ran@cryptocom.ru: For clarity.  The error is if parameters in peer are
+  // present (!missing) but don't match.  EVP_PKEY_cmp_parameters may return
+  // 1 (match), 0 (don't match) and -2 (comparison is not defined).  -1
+  // (different key types) is impossible here because it is checked earlier.
+  // -2 is OK for us here, as well as 1, so we can check for 0 only.
   if (!EVP_PKEY_missing_parameters(peer) &&
       !EVP_PKEY_cmp_parameters(ctx->pkey, peer)) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_DIFFERENT_PARAMETERS);
@@ -417,7 +414,7 @@ int EVP_PKEY_keygen_init(EVP_PKEY_CTX *ctx) {
   return 1;
 }
 
-int EVP_PKEY_keygen(EVP_PKEY_CTX *ctx, EVP_PKEY **ppkey) {
+int EVP_PKEY_keygen(EVP_PKEY_CTX *ctx, EVP_PKEY **out_pkey) {
   if (!ctx || !ctx->pmeth || !ctx->pmeth->keygen) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
     return 0;
@@ -427,21 +424,60 @@ int EVP_PKEY_keygen(EVP_PKEY_CTX *ctx, EVP_PKEY **ppkey) {
     return 0;
   }
 
-  if (!ppkey) {
+  if (!out_pkey) {
     return 0;
   }
 
-  if (!*ppkey) {
-    *ppkey = EVP_PKEY_new();
-    if (!*ppkey) {
+  if (!*out_pkey) {
+    *out_pkey = EVP_PKEY_new();
+    if (!*out_pkey) {
       OPENSSL_PUT_ERROR(EVP, ERR_LIB_EVP);
       return 0;
     }
   }
 
-  if (!ctx->pmeth->keygen(ctx, *ppkey)) {
-    EVP_PKEY_free(*ppkey);
-    *ppkey = NULL;
+  if (!ctx->pmeth->keygen(ctx, *out_pkey)) {
+    EVP_PKEY_free(*out_pkey);
+    *out_pkey = NULL;
+    return 0;
+  }
+  return 1;
+}
+
+int EVP_PKEY_paramgen_init(EVP_PKEY_CTX *ctx) {
+  if (!ctx || !ctx->pmeth || !ctx->pmeth->paramgen) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
+    return 0;
+  }
+  ctx->operation = EVP_PKEY_OP_PARAMGEN;
+  return 1;
+}
+
+int EVP_PKEY_paramgen(EVP_PKEY_CTX *ctx, EVP_PKEY **out_pkey) {
+  if (!ctx || !ctx->pmeth || !ctx->pmeth->paramgen) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
+    return 0;
+  }
+  if (ctx->operation != EVP_PKEY_OP_PARAMGEN) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATON_NOT_INITIALIZED);
+    return 0;
+  }
+
+  if (!out_pkey) {
+    return 0;
+  }
+
+  if (!*out_pkey) {
+    *out_pkey = EVP_PKEY_new();
+    if (!*out_pkey) {
+      OPENSSL_PUT_ERROR(EVP, ERR_LIB_EVP);
+      return 0;
+    }
+  }
+
+  if (!ctx->pmeth->paramgen(ctx, *out_pkey)) {
+    EVP_PKEY_free(*out_pkey);
+    *out_pkey = NULL;
     return 0;
   }
   return 1;

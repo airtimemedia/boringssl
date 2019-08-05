@@ -55,24 +55,25 @@
  * [including the GNU Public Licence.] */
 
 #if defined(__linux) || defined(__sun) || defined(__hpux)
-/* Following definition aliases fopen to fopen64 on above mentioned
- * platforms. This makes it possible to open and sequentially access
- * files larger than 2GB from 32-bit application. It does not allow to
- * traverse them beyond 2GB with fseek/ftell, but on the other hand *no*
- * 32-bit platform permits that, not with fseek/ftell. Not to mention
- * that breaking 2GB limit for seeking would require surgery to *our*
- * API. But sequential access suffices for practical cases when you
- * can run into large files, such as fingerprinting, so we can let API
- * alone. For reference, the list of 32-bit platforms which allow for
- * sequential access of large files without extra "magic" comprise *BSD,
- * Darwin, IRIX...
- */
+// Following definition aliases fopen to fopen64 on above mentioned
+// platforms. This makes it possible to open and sequentially access
+// files larger than 2GB from 32-bit application. It does not allow to
+// traverse them beyond 2GB with fseek/ftell, but on the other hand *no*
+// 32-bit platform permits that, not with fseek/ftell. Not to mention
+// that breaking 2GB limit for seeking would require surgery to *our*
+// API. But sequential access suffices for practical cases when you
+// can run into large files, such as fingerprinting, so we can let API
+// alone. For reference, the list of 32-bit platforms which allow for
+// sequential access of large files without extra "magic" comprise *BSD,
+// Darwin, IRIX...
 #ifndef _FILE_OFFSET_BITS
 #define _FILE_OFFSET_BITS 64
 #endif
 #endif
 
 #include <openssl/bio.h>
+
+#if !defined(OPENSSL_TRUSTY)
 
 #include <errno.h>
 #include <stdio.h>
@@ -82,52 +83,18 @@
 #include <openssl/err.h>
 #include <openssl/mem.h>
 
+#include "../internal.h"
+
 
 #define BIO_FP_READ 0x02
 #define BIO_FP_WRITE 0x04
 #define BIO_FP_APPEND 0x08
 
-static FILE *open_file(const char *filename, const char *mode) {
-#if defined(OPENSSL_WINDOWS) && defined(CP_UTF8)
-  int sz, len_0 = (int)strlen(filename) + 1;
-  DWORD flags;
-
-  /* Basically there are three cases to cover: a) filename is pure ASCII
-   * string; b) actual UTF-8 encoded string and c) locale-ized string, i.e. one
-   * containing 8-bit characters that are meaningful in current system locale.
-   * If filename is pure ASCII or real UTF-8 encoded string,
-   * MultiByteToWideChar succeeds and _wfopen works. If filename is locale-ized
-   * string, chances are that MultiByteToWideChar fails reporting
-   * ERROR_NO_UNICODE_TRANSLATION, in which case we fall back to fopen... */
-  if ((sz = MultiByteToWideChar(CP_UTF8, (flags = MB_ERR_INVALID_CHARS),
-                                filename, len_0, NULL, 0)) > 0 ||
-      (GetLastError() == ERROR_INVALID_FLAGS &&
-       (sz = MultiByteToWideChar(CP_UTF8, (flags = 0), filename, len_0, NULL,
-                                 0)) > 0)) {
-    WCHAR wmode[8];
-    WCHAR *wfilename = _alloca(sz * sizeof(WCHAR));
-
-    if (MultiByteToWideChar(CP_UTF8, flags, filename, len_0, wfilename, sz) &&
-        MultiByteToWideChar(CP_UTF8, 0, mode, strlen(mode) + 1, wmode,
-                            sizeof(wmode) / sizeof(wmode[0])) &&
-        (file = _wfopen(wfilename, wmode)) == NULL &&
-        (errno == ENOENT ||
-         errno == EBADF)) /* UTF-8 decode succeeded, but no file, filename
-                           * could still have been locale-ized... */
-      return fopen(filename, mode);
-  } else if (GetLastError() == ERROR_NO_UNICODE_TRANSLATION) {
-    return fopen(filename, mode);
-  }
-#else
-  return fopen(filename, mode);
-#endif
-}
-
 BIO *BIO_new_file(const char *filename, const char *mode) {
   BIO *ret;
   FILE *file;
 
-  file = open_file(filename, mode);
+  file = fopen(filename, mode);
   if (file == NULL) {
     OPENSSL_PUT_SYSTEM_ERROR();
 
@@ -140,13 +107,12 @@ BIO *BIO_new_file(const char *filename, const char *mode) {
     return NULL;
   }
 
-  ret = BIO_new(BIO_s_file());
+  ret = BIO_new_fp(file, BIO_CLOSE);
   if (ret == NULL) {
     fclose(file);
     return NULL;
   }
 
-  BIO_set_fp(ret, file, BIO_CLOSE);
   return ret;
 }
 
@@ -193,7 +159,7 @@ static int file_read(BIO *b, char *out, int outl) {
     return -1;
   }
 
-  /* fread reads at most |outl| bytes, so |ret| fits in an int. */
+  // fread reads at most |outl| bytes, so |ret| fits in an int.
   return (int)ret;
 }
 
@@ -220,6 +186,7 @@ static long file_ctrl(BIO *b, int cmd, long num, void *ptr) {
   switch (cmd) {
     case BIO_CTRL_RESET:
       num = 0;
+      OPENSSL_FALLTHROUGH;
     case BIO_C_FILE_SEEK:
       ret = (long)fseek(fp, num, 0);
       break;
@@ -256,7 +223,7 @@ static long file_ctrl(BIO *b, int cmd, long num, void *ptr) {
         ret = 0;
         break;
       }
-      fp = open_file(ptr, p);
+      fp = fopen(ptr, p);
       if (fp == NULL) {
         OPENSSL_PUT_SYSTEM_ERROR();
         ERR_add_error_data(5, "fopen('", ptr, "','", p, "')");
@@ -268,7 +235,7 @@ static long file_ctrl(BIO *b, int cmd, long num, void *ptr) {
       b->init = 1;
       break;
     case BIO_C_GET_FILE_PTR:
-      /* the ptr parameter is actually a FILE ** in this case. */
+      // the ptr parameter is actually a FILE ** in this case.
       if (ptr != NULL) {
         fpp = (FILE **)ptr;
         *fpp = (FILE *)b->ptr;
@@ -309,13 +276,13 @@ err:
   return ret;
 }
 
-static int file_puts(BIO *bp, const char *str) {
-  return file_write(bp, str, strlen(str));
-}
-
 static const BIO_METHOD methods_filep = {
-    BIO_TYPE_FILE, "FILE pointer", file_write, file_read, file_puts,
-    file_gets,     file_ctrl,      file_new,   file_free, NULL, };
+    BIO_TYPE_FILE,   "FILE pointer",
+    file_write,      file_read,
+    NULL /* puts */, file_gets,
+    file_ctrl,       file_new,
+    file_free,       NULL /* callback_ctrl */,
+};
 
 const BIO_METHOD *BIO_s_file(void) { return &methods_filep; }
 
@@ -347,3 +314,5 @@ int BIO_rw_filename(BIO *bio, const char *filename) {
   return BIO_ctrl(bio, BIO_C_SET_FILENAME,
                   BIO_CLOSE | BIO_FP_READ | BIO_FP_WRITE, (char *)filename);
 }
+
+#endif  // OPENSSL_TRUSTY

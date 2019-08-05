@@ -16,6 +16,7 @@
 #include <vector>
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #include <openssl/rand.h>
@@ -41,7 +42,7 @@ bool Rand(const std::vector<std::string> &args) {
     std::vector<std::string> args_copy(args);
     const std::string &last_arg = args.back();
 
-    if (last_arg.size() > 0 && last_arg[0] != '-') {
+    if (!last_arg.empty() && last_arg[0] != '-') {
       char *endptr;
       unsigned long long num = strtoull(last_arg.c_str(), &endptr, 10);
       if (*endptr == 0) {
@@ -71,7 +72,7 @@ bool Rand(const std::vector<std::string> &args) {
     }
     RAND_bytes(buf, todo);
     if (hex) {
-      static const char hextable[] = "0123456789abdef";
+      static const char hextable[16 + 1] = "0123456789abcdef";
       for (unsigned i = 0; i < todo; i++) {
         hex_buf[i*2] = hextable[buf[i] >> 4];
         hex_buf[i*2 + 1] = hextable[buf[i] & 0xf];

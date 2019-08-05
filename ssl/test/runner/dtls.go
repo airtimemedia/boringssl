@@ -23,20 +23,6 @@ import (
 	"net"
 )
 
-func versionToWire(vers uint16, isDTLS bool) uint16 {
-	if isDTLS {
-		return ^(vers - 0x0201)
-	}
-	return vers
-}
-
-func wireToVersion(vers uint16, isDTLS bool) uint16 {
-	if isDTLS {
-		return ^vers + 0x0201
-	}
-	return vers
-}
-
 func (c *Conn) dtlsDoReadRecord(want recordType) (recordType, *block, error) {
 	recordHeaderLen := dtlsRecordHeaderLen
 
@@ -46,6 +32,7 @@ func (c *Conn) dtlsDoReadRecord(want recordType) (recordType, *block, error) {
 	b := c.rawInput
 
 	// Read a new packet only if the current one is empty.
+	var newPacket bool
 	if len(b.data) == 0 {
 		// Pick some absurdly large buffer size.
 		b.resize(maxCiphertext + recordHeaderLen)
@@ -57,6 +44,7 @@ func (c *Conn) dtlsDoReadRecord(want recordType) (recordType, *block, error) {
 			return 0, nil, fmt.Errorf("dtls: exceeded maximum packet length")
 		}
 		c.rawInput.resize(n)
+		newPacket = true
 	}
 
 	// Read out one record.
@@ -68,16 +56,22 @@ func (c *Conn) dtlsDoReadRecord(want recordType) (recordType, *block, error) {
 		return 0, nil, errors.New("dtls: failed to read record header")
 	}
 	typ := recordType(b.data[0])
-	vers := wireToVersion(uint16(b.data[1])<<8|uint16(b.data[2]), c.isDTLS)
-	if c.haveVers {
-		if vers != c.vers {
-			c.sendAlert(alertProtocolVersion)
-			return 0, nil, c.in.setErrorLocked(fmt.Errorf("dtls: received record with version %x when expecting version %x", vers, c.vers))
-		}
-	} else {
-		if expect := c.config.Bugs.ExpectInitialRecordVersion; expect != 0 && vers != expect {
-			c.sendAlert(alertProtocolVersion)
-			return 0, nil, c.in.setErrorLocked(fmt.Errorf("dtls: received record with version %x when expecting version %x", vers, expect))
+	vers := uint16(b.data[1])<<8 | uint16(b.data[2])
+	// Alerts sent near version negotiation do not have a well-defined
+	// record-layer version prior to TLS 1.3. (In TLS 1.3, the record-layer
+	// version is irrelevant.)
+	if typ != recordTypeAlert {
+		if c.haveVers {
+			if vers != c.wireVersion {
+				c.sendAlert(alertProtocolVersion)
+				return 0, nil, c.in.setErrorLocked(fmt.Errorf("dtls: received record with version %x when expecting version %x", vers, c.wireVersion))
+			}
+		} else {
+			// Pre-version-negotiation alerts may be sent with any version.
+			if expect := c.config.Bugs.ExpectInitialRecordVersion; expect != 0 && vers != expect {
+				c.sendAlert(alertProtocolVersion)
+				return 0, nil, c.in.setErrorLocked(fmt.Errorf("dtls: received record with version %x when expecting version %x", vers, expect))
+			}
 		}
 	}
 	epoch := b.data[3:5]
@@ -103,11 +97,24 @@ func (c *Conn) dtlsDoReadRecord(want recordType) (recordType, *block, error) {
 
 	// Process message.
 	b, c.rawInput = c.in.splitBlock(b, recordHeaderLen+n)
-	ok, off, err := c.in.decrypt(b)
+	ok, off, _, alertValue := c.in.decrypt(b)
 	if !ok {
-		c.in.setErrorLocked(c.sendAlert(err))
+		// A real DTLS implementation would silently ignore bad records,
+		// but we want to notice errors from the implementation under
+		// test.
+		return 0, nil, c.in.setErrorLocked(c.sendAlert(alertValue))
 	}
 	b.off = off
+
+	// TODO(nharper): Once DTLS 1.3 is defined, handle the extra
+	// parameter from decrypt.
+
+	// Require that ChangeCipherSpec always share a packet with either the
+	// previous or next handshake message.
+	if newPacket && typ == recordTypeChangeCipherSpec && c.rawInput == nil {
+		return 0, nil, c.in.setErrorLocked(fmt.Errorf("dtls: ChangeCipherSpec not packed together with Finished"))
+	}
+
 	return typ, b, nil
 }
 
@@ -122,9 +129,63 @@ func (c *Conn) makeFragment(header, data []byte, fragOffset, fragLen int) []byte
 }
 
 func (c *Conn) dtlsWriteRecord(typ recordType, data []byte) (n int, err error) {
+	// Only handshake messages are fragmented.
 	if typ != recordTypeHandshake {
-		// Only handshake messages are fragmented.
-		return c.dtlsWriteRawRecord(typ, data)
+		reorder := typ == recordTypeChangeCipherSpec && c.config.Bugs.ReorderChangeCipherSpec
+
+		// Flush pending handshake messages before encrypting a new record.
+		if !reorder {
+			err = c.dtlsPackHandshake()
+			if err != nil {
+				return
+			}
+		}
+
+		if typ == recordTypeApplicationData && len(data) > 1 && c.config.Bugs.SplitAndPackAppData {
+			_, err = c.dtlsPackRecord(typ, data[:len(data)/2], false)
+			if err != nil {
+				return
+			}
+			_, err = c.dtlsPackRecord(typ, data[len(data)/2:], true)
+			if err != nil {
+				return
+			}
+			n = len(data)
+		} else {
+			n, err = c.dtlsPackRecord(typ, data, false)
+			if err != nil {
+				return
+			}
+		}
+
+		if reorder {
+			err = c.dtlsPackHandshake()
+			if err != nil {
+				return
+			}
+		}
+
+		if typ == recordTypeChangeCipherSpec {
+			err = c.out.changeCipherSpec(c.config)
+			if err != nil {
+				return n, c.sendAlertLocked(alertLevelError, err.(alert))
+			}
+		} else {
+			// ChangeCipherSpec is part of the handshake and not
+			// flushed until dtlsFlushPacket.
+			err = c.dtlsFlushPacket()
+			if err != nil {
+				return
+			}
+		}
+		return
+	}
+
+	if c.out.cipher == nil && c.config.Bugs.StrayChangeCipherSpec {
+		_, err = c.dtlsPackRecord(recordTypeChangeCipherSpec, []byte{1}, false)
+		if err != nil {
+			return
+		}
 	}
 
 	maxLen := c.config.Bugs.MaxHandshakeRecordLength
@@ -147,8 +208,8 @@ func (c *Conn) dtlsWriteRecord(typ recordType, data []byte) (n int, err error) {
 	isFinished := header[0] == typeFinished
 
 	if c.config.Bugs.SendEmptyFragments {
-		fragment := c.makeFragment(header, data, 0, 0)
-		c.pendingFragments = append(c.pendingFragments, fragment)
+		c.pendingFragments = append(c.pendingFragments, c.makeFragment(header, data, 0, 0))
+		c.pendingFragments = append(c.pendingFragments, c.makeFragment(header, data, len(data), 0))
 	}
 
 	firstRun := true
@@ -186,7 +247,11 @@ func (c *Conn) dtlsWriteRecord(typ recordType, data []byte) (n int, err error) {
 		fragOffset += fragLen
 		n += fragLen
 	}
-	if !isFinished && c.config.Bugs.MixCompleteMessageWithFragments {
+	shouldSendTwice := c.config.Bugs.MixCompleteMessageWithFragments
+	if isFinished {
+		shouldSendTwice = c.config.Bugs.RetransmitFinished
+	}
+	if shouldSendTwice {
 		fragment := c.makeFragment(header, data, 0, len(data))
 		c.pendingFragments = append(c.pendingFragments, fragment)
 	}
@@ -197,11 +262,9 @@ func (c *Conn) dtlsWriteRecord(typ recordType, data []byte) (n int, err error) {
 	return
 }
 
-func (c *Conn) dtlsFlushHandshake() error {
-	if !c.isDTLS {
-		return nil
-	}
-
+// dtlsPackHandshake packs the pending handshake flight into the pending
+// record. Callers should follow up with dtlsFlushPacket to write the packets.
+func (c *Conn) dtlsPackHandshake() error {
 	// This is a test-only DTLS implementation, so there is no need to
 	// retain |c.pendingFragments| for a future retransmit.
 	var fragments [][]byte
@@ -214,10 +277,15 @@ func (c *Conn) dtlsFlushHandshake() error {
 			tmp[i] = fragments[perm[i]]
 		}
 		fragments = tmp
+	} else if c.config.Bugs.ReverseHandshakeFragments {
+		tmp := make([][]byte, len(fragments))
+		for i := range tmp {
+			tmp[i] = fragments[len(fragments)-i-1]
+		}
+		fragments = tmp
 	}
 
 	maxRecordLen := c.config.Bugs.PackHandshakeFragments
-	maxPacketLen := c.config.Bugs.PackHandshakeRecords
 
 	// Pack handshake fragments into records.
 	var records [][]byte
@@ -237,42 +305,39 @@ func (c *Conn) dtlsFlushHandshake() error {
 		}
 	}
 
-	// Format them into packets.
-	var packets [][]byte
+	// Send the records.
 	for _, record := range records {
-		b, err := c.dtlsSealRecord(recordTypeHandshake, record)
+		_, err := c.dtlsPackRecord(recordTypeHandshake, record, false)
 		if err != nil {
 			return err
 		}
-
-		if i := len(packets) - 1; len(packets) > 0 && len(packets[i])+len(b.data) <= maxPacketLen {
-			packets[i] = append(packets[i], b.data...)
-		} else {
-			// The sealed record will be appended to and reused by
-			// |c.out|, so copy it.
-			packets = append(packets, append([]byte{}, b.data...))
-		}
-		c.out.freeBlock(b)
 	}
 
-	// Send all the packets.
-	for _, packet := range packets {
-		if _, err := c.conn.Write(packet); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
-// dtlsSealRecord seals a record into a block from |c.out|'s pool.
-func (c *Conn) dtlsSealRecord(typ recordType, data []byte) (b *block, err error) {
+func (c *Conn) dtlsFlushHandshake() error {
+	if err := c.dtlsPackHandshake(); err != nil {
+		return err
+	}
+	if err := c.dtlsFlushPacket(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// dtlsPackRecord packs a single record to the pending packet, flushing it
+// if necessary. The caller should call dtlsFlushPacket to flush the current
+// pending packet afterwards.
+func (c *Conn) dtlsPackRecord(typ recordType, data []byte, mustPack bool) (n int, err error) {
 	recordHeaderLen := dtlsRecordHeaderLen
 	maxLen := c.config.Bugs.MaxHandshakeRecordLength
 	if maxLen <= 0 {
 		maxLen = 1024
 	}
 
-	b = c.out.newBlock()
+	b := c.out.newBlock()
 
 	explicitIVLen := 0
 	explicitIVIsSeq := false
@@ -289,18 +354,23 @@ func (c *Conn) dtlsSealRecord(typ recordType, data []byte) (b *block, err error)
 			// use the sequence number as the nonce.
 			explicitIVIsSeq = true
 		}
-	} else if c.out.cipher != nil {
+	} else if _, ok := c.out.cipher.(nullCipher); !ok && c.out.cipher != nil {
 		panic("Unknown cipher")
 	}
 	b.resize(recordHeaderLen + explicitIVLen + len(data))
+	// TODO(nharper): DTLS 1.3 will likely need to set this to
+	// recordTypeApplicationData if c.out.cipher != nil.
 	b.data[0] = byte(typ)
-	vers := c.vers
+	vers := c.wireVersion
 	if vers == 0 {
 		// Some TLS servers fail if the record version is greater than
 		// TLS 1.0 for the initial ClientHello.
-		vers = VersionTLS10
+		if c.isDTLS {
+			vers = VersionDTLS10
+		} else {
+			vers = VersionTLS10
+		}
 	}
-	vers = versionToWire(vers, c.isDTLS)
 	b.data[1] = byte(vers >> 8)
 	b.data[2] = byte(vers)
 	// DTLS records include an explicit sequence number.
@@ -318,36 +388,31 @@ func (c *Conn) dtlsSealRecord(typ recordType, data []byte) (b *block, err error)
 		}
 	}
 	copy(b.data[recordHeaderLen+explicitIVLen:], data)
-	c.out.encrypt(b, explicitIVLen)
+	c.out.encrypt(b, explicitIVLen, typ)
+
+	// Flush the current pending packet if necessary.
+	if !mustPack && len(b.data)+len(c.pendingPacket) > c.config.Bugs.PackHandshakeRecords {
+		err = c.dtlsFlushPacket()
+		if err != nil {
+			c.out.freeBlock(b)
+			return
+		}
+	}
+
+	// Add the record to the pending packet.
+	c.pendingPacket = append(c.pendingPacket, b.data...)
+	c.out.freeBlock(b)
+	n = len(data)
 	return
 }
 
-func (c *Conn) dtlsWriteRawRecord(typ recordType, data []byte) (n int, err error) {
-	b, err := c.dtlsSealRecord(typ, data)
-	if err != nil {
-		return
+func (c *Conn) dtlsFlushPacket() error {
+	if len(c.pendingPacket) == 0 {
+		return nil
 	}
-
-	_, err = c.conn.Write(b.data)
-	if err != nil {
-		return
-	}
-	n = len(data)
-
-	c.out.freeBlock(b)
-
-	if typ == recordTypeChangeCipherSpec {
-		err = c.out.changeCipherSpec(c.config)
-		if err != nil {
-			// Cannot call sendAlert directly,
-			// because we already hold c.out.Mutex.
-			c.tmp[0] = alertLevelError
-			c.tmp[1] = byte(err.(alert))
-			c.writeRecord(recordTypeAlert, c.tmp[0:2])
-			return n, c.out.setErrorLocked(&net.OpError{Op: "local error", Err: err})
-		}
-	}
-	return
+	_, err := c.conn.Write(c.pendingPacket)
+	c.pendingPacket = nil
+	return err
 }
 
 func (c *Conn) dtlsDoReadHandshake() ([]byte, error) {

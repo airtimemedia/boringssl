@@ -1,55 +1,64 @@
 include_directories(../include)
 
-add_subdirectory(pqueue)
-
 add_library(
   ssl
 
-  custom_extensions.c
-  d1_both.c
-  d1_clnt.c
-  d1_lib.c
-  d1_meth.c
-  d1_pkt.c
-  d1_srtp.c
-  d1_srvr.c
-  dtls_record.c
-  s3_both.c
-  s3_clnt.c
-  s3_enc.c
-  s3_lib.c
-  s3_meth.c
-  s3_pkt.c
-  s3_srvr.c
-  ssl_aead_ctx.c
-  ssl_asn1.c
-  ssl_buffer.c
-  ssl_cert.c
-  ssl_cipher.c
-  ssl_ecdh.c
-  ssl_file.c
-  ssl_lib.c
-  ssl_rsa.c
-  ssl_session.c
-  ssl_stat.c
-  t1_enc.c
-  t1_lib.c
-  tls_record.c
-
-  $<TARGET_OBJECTS:pqueue>
+  bio_ssl.cc
+  d1_both.cc
+  d1_lib.cc
+  d1_pkt.cc
+  d1_srtp.cc
+  dtls_method.cc
+  dtls_record.cc
+  handoff.cc
+  handshake.cc
+  handshake_client.cc
+  handshake_server.cc
+  s3_both.cc
+  s3_lib.cc
+  s3_pkt.cc
+  ssl_aead_ctx.cc
+  ssl_asn1.cc
+  ssl_buffer.cc
+  ssl_cert.cc
+  ssl_cipher.cc
+  ssl_file.cc
+  ssl_key_share.cc
+  ssl_lib.cc
+  ssl_privkey.cc
+  ssl_session.cc
+  ssl_stat.cc
+  ssl_transcript.cc
+  ssl_versions.cc
+  ssl_x509.cc
+  t1_enc.cc
+  t1_lib.cc
+  tls_method.cc
+  tls_record.cc
+  tls13_both.cc
+  tls13_client.cc
+  tls13_enc.cc
+  tls13_server.cc
 )
+
+add_dependencies(ssl global_target)
 
 target_link_libraries(ssl crypto)
 
 add_executable(
   ssl_test
 
+  span_test.cc
   ssl_test.cc
+  ssl_c_test.c
 
-  $<TARGET_OBJECTS:test_support>
+  $<TARGET_OBJECTS:boringssl_gtest_main>
 )
 
-set_executable_props(ssl_test)
+add_dependencies(ssl_test global_target)
 
-target_link_libraries(ssl_test ssl crypto)
+target_link_libraries(ssl_test test_support_lib boringssl_gtest ssl crypto)
+if(WIN32)
+  target_link_libraries(ssl_test ws2_32)
+endif()
 add_dependencies(all_tests ssl_test)

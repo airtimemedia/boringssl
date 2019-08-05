@@ -1,3 +1,17 @@
+// Copyright (c) 2016, Google Inc.
+//
+// Permission to use, copy, modify, and/or distribute this software for any
+// purpose with or without fee is hereby granted, provided that the above
+// copyright notice and this permission notice appear in all copies.
+//
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+// WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+// SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+// WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+// OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 package runner
 
 import (
@@ -90,6 +104,21 @@ func (r *recordingConn) WriteTo(w io.Writer) {
 			dumper.Close()
 		}
 	}
+}
+
+func (r *recordingConn) Transcript() []byte {
+	var ret []byte
+	for _, flow := range r.flows {
+		if flow.flowType != writeFlow {
+			continue
+		}
+		if r.isDatagram {
+			// Prepend a length prefix to preserve packet boundaries.
+			ret = append(ret, byte(len(flow.data)>>16), byte(len(flow.data)>>8), byte(len(flow.data)))
+		}
+		ret = append(ret, flow.data...)
+	}
+	return ret
 }
 
 func parseTestData(r io.Reader) (flows [][]byte, err error) {

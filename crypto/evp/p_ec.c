@@ -66,15 +66,17 @@
 #include <openssl/ecdsa.h>
 #include <openssl/err.h>
 #include <openssl/mem.h>
-#include <openssl/obj.h>
+#include <openssl/nid.h>
 
 #include "internal.h"
-#include "../ec/internal.h"
+#include "../fipsmodule/ec/internal.h"
+#include "../internal.h"
 
 
 typedef struct {
-  /* message digest */
+  // message digest
   const EVP_MD *md;
+  EC_GROUP *gen_group;
 } EC_PKEY_CTX;
 
 
@@ -84,7 +86,7 @@ static int pkey_ec_init(EVP_PKEY_CTX *ctx) {
   if (!dctx) {
     return 0;
   }
-  memset(dctx, 0, sizeof(EC_PKEY_CTX));
+  OPENSSL_memset(dctx, 0, sizeof(EC_PKEY_CTX));
 
   ctx->data = dctx;
 
@@ -110,6 +112,7 @@ static void pkey_ec_cleanup(EVP_PKEY_CTX *ctx) {
     return;
   }
 
+  EC_GROUP_free(dctx->gen_group);
   OPENSSL_free(dctx);
 }
 
@@ -160,8 +163,8 @@ static int pkey_ec_derive(EVP_PKEY_CTX *ctx, uint8_t *key,
   }
   pubkey = EC_KEY_get0_public_key(ctx->peerkey->pkey.ec);
 
-  /* NB: unlike PKCS#3 DH, if *outlen is less than maximum size this is
-   * not an error, the result is truncated. */
+  // NB: unlike PKCS#3 DH, if *outlen is less than maximum size this is
+  // not an error, the result is truncated.
 
   outlen = *keylen;
 
@@ -195,8 +198,18 @@ static int pkey_ec_ctrl(EVP_PKEY_CTX *ctx, int type, int p1, void *p2) {
       return 1;
 
     case EVP_PKEY_CTRL_PEER_KEY:
-      /* Default behaviour is OK */
+      // Default behaviour is OK
       return 1;
+
+    case EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID: {
+      EC_GROUP *group = EC_GROUP_new_by_curve_name(p1);
+      if (group == NULL) {
+        return 0;
+      }
+      EC_GROUP_free(dctx->gen_group);
+      dctx->gen_group = group;
+      return 1;
+    }
 
     default:
       OPENSSL_PUT_ERROR(EVP, EVP_R_COMMAND_NOT_SUPPORTED);
@@ -205,14 +218,35 @@ static int pkey_ec_ctrl(EVP_PKEY_CTX *ctx, int type, int p1, void *p2) {
 }
 
 static int pkey_ec_keygen(EVP_PKEY_CTX *ctx, EVP_PKEY *pkey) {
-  if (ctx->pkey == NULL) {
+  EC_PKEY_CTX *dctx = ctx->data;
+  const EC_GROUP *group = dctx->gen_group;
+  if (group == NULL) {
+    if (ctx->pkey == NULL) {
+      OPENSSL_PUT_ERROR(EVP, EVP_R_NO_PARAMETERS_SET);
+      return 0;
+    }
+    group = EC_KEY_get0_group(ctx->pkey->pkey.ec);
+  }
+  EC_KEY *ec = EC_KEY_new();
+  if (ec == NULL ||
+      !EC_KEY_set_group(ec, group) ||
+      !EC_KEY_generate_key(ec)) {
+    EC_KEY_free(ec);
+    return 0;
+  }
+  EVP_PKEY_assign_EC_KEY(pkey, ec);
+  return 1;
+}
+
+static int pkey_ec_paramgen(EVP_PKEY_CTX *ctx, EVP_PKEY *pkey) {
+  EC_PKEY_CTX *dctx = ctx->data;
+  if (dctx->gen_group == NULL) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_NO_PARAMETERS_SET);
     return 0;
   }
   EC_KEY *ec = EC_KEY_new();
   if (ec == NULL ||
-      !EC_KEY_set_group(ec, EC_KEY_get0_group(ctx->pkey->pkey.ec)) ||
-      !EC_KEY_generate_key(ec)) {
+      !EC_KEY_set_group(ec, dctx->gen_group)) {
     EC_KEY_free(ec);
     return 0;
   }
@@ -227,10 +261,27 @@ const EVP_PKEY_METHOD ec_pkey_meth = {
     pkey_ec_cleanup,
     pkey_ec_keygen,
     pkey_ec_sign,
+    NULL /* sign_message */,
     pkey_ec_verify,
-    0 /* verify_recover */,
-    0 /* encrypt */,
-    0 /* decrypt */,
+    NULL /* verify_message */,
+    NULL /* verify_recover */,
+    NULL /* encrypt */,
+    NULL /* decrypt */,
     pkey_ec_derive,
+    pkey_ec_paramgen,
     pkey_ec_ctrl,
 };
+
+int EVP_PKEY_CTX_set_ec_paramgen_curve_nid(EVP_PKEY_CTX *ctx, int nid) {
+  return EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_EC, EVP_PKEY_OP_TYPE_GEN,
+                           EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID, nid, NULL);
+}
+
+int EVP_PKEY_CTX_set_ec_param_enc(EVP_PKEY_CTX *ctx, int encoding) {
+  // BoringSSL only supports named curve syntax.
+  if (encoding != OPENSSL_EC_NAMED_CURVE) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_INVALID_PARAMETERS);
+    return 0;
+  }
+  return 1;
+}

@@ -65,7 +65,6 @@
 #include <openssl/mem.h>
 #include <openssl/thread.h>
 
-#include "internal.h"
 #include "../internal.h"
 
 
@@ -80,7 +79,7 @@ DH *DH_new(void) {
     return NULL;
   }
 
-  memset(dh, 0, sizeof(DH));
+  OPENSSL_memset(dh, 0, sizeof(DH));
 
   CRYPTO_MUTEX_init(&dh->method_mont_p_lock);
 
@@ -115,33 +114,92 @@ void DH_free(DH *dh) {
   OPENSSL_free(dh);
 }
 
-int DH_generate_parameters_ex(DH *dh, int prime_bits, int generator, BN_GENCB *cb) {
-  /* We generate DH parameters as follows
-   * find a prime q which is prime_bits/2 bits long.
-   * p=(2*q)+1 or (p-1)/2 = q
-   * For this case, g is a generator if
-   * g^((p-1)/q) mod p != 1 for values of q which are the factors of p-1.
-   * Since the factors of p-1 are q and 2, we just need to check
-   * g^2 mod p != 1 and g^q mod p != 1.
-   *
-   * Having said all that,
-   * there is another special case method for the generators 2, 3 and 5.
-   * for 2, p mod 24 == 11
-   * for 3, p mod 12 == 5  <<<<< does not work for safe primes.
-   * for 5, p mod 10 == 3 or 7
-   *
-   * Thanks to Phil Karn <karn@qualcomm.com> for the pointers about the
-   * special generators and for answering some of my questions.
-   *
-   * I've implemented the second simple method :-).
-   * Since DH should be using a safe prime (both p and q are prime),
-   * this generator function can take a very very long time to run.
-   */
+void DH_get0_key(const DH *dh, const BIGNUM **out_pub_key,
+                 const BIGNUM **out_priv_key) {
+  if (out_pub_key != NULL) {
+    *out_pub_key = dh->pub_key;
+  }
+  if (out_priv_key != NULL) {
+    *out_priv_key = dh->priv_key;
+  }
+}
 
-  /* Actually there is no reason to insist that 'generator' be a generator.
-   * It's just as OK (and in some sense better) to use a generator of the
-   * order-q subgroup.
-   */
+int DH_set0_key(DH *dh, BIGNUM *pub_key, BIGNUM *priv_key) {
+  if (pub_key != NULL) {
+    BN_free(dh->pub_key);
+    dh->pub_key = pub_key;
+  }
+
+  if (priv_key != NULL) {
+    BN_free(dh->priv_key);
+    dh->priv_key = priv_key;
+  }
+
+  return 1;
+}
+
+void DH_get0_pqg(const DH *dh, const BIGNUM **out_p, const BIGNUM **out_q,
+                 const BIGNUM **out_g) {
+  if (out_p != NULL) {
+    *out_p = dh->p;
+  }
+  if (out_q != NULL) {
+    *out_q = dh->q;
+  }
+  if (out_g != NULL) {
+    *out_g = dh->g;
+  }
+}
+
+int DH_set0_pqg(DH *dh, BIGNUM *p, BIGNUM *q, BIGNUM *g) {
+  if ((dh->p == NULL && p == NULL) ||
+      (dh->g == NULL && g == NULL)) {
+    return 0;
+  }
+
+  if (p != NULL) {
+    BN_free(dh->p);
+    dh->p = p;
+  }
+
+  if (q != NULL) {
+    BN_free(dh->q);
+    dh->q = q;
+  }
+
+  if (g != NULL) {
+    BN_free(dh->g);
+    dh->g = g;
+  }
+
+  return 1;
+}
+
+int DH_generate_parameters_ex(DH *dh, int prime_bits, int generator, BN_GENCB *cb) {
+  // We generate DH parameters as follows
+  // find a prime q which is prime_bits/2 bits long.
+  // p=(2*q)+1 or (p-1)/2 = q
+  // For this case, g is a generator if
+  // g^((p-1)/q) mod p != 1 for values of q which are the factors of p-1.
+  // Since the factors of p-1 are q and 2, we just need to check
+  // g^2 mod p != 1 and g^q mod p != 1.
+  //
+  // Having said all that,
+  // there is another special case method for the generators 2, 3 and 5.
+  // for 2, p mod 24 == 11
+  // for 3, p mod 12 == 5  <<<<< does not work for safe primes.
+  // for 5, p mod 10 == 3 or 7
+  //
+  // Thanks to Phil Karn <karn@qualcomm.com> for the pointers about the
+  // special generators and for answering some of my questions.
+  //
+  // I've implemented the second simple method :-).
+  // Since DH should be using a safe prime (both p and q are prime),
+  // this generator function can take a very very long time to run.
+
+  // Actually there is no reason to insist that 'generator' be a generator.
+  // It's just as OK (and in some sense better) to use a generator of the
+  // order-q subgroup.
 
   BIGNUM *t1, *t2;
   int g, ok = 0;
@@ -158,7 +216,7 @@ int DH_generate_parameters_ex(DH *dh, int prime_bits, int generator, BN_GENCB *c
     goto err;
   }
 
-  /* Make sure |dh| has the necessary elements */
+  // Make sure |dh| has the necessary elements
   if (dh->p == NULL) {
     dh->p = BN_new();
     if (dh->p == NULL) {
@@ -191,14 +249,14 @@ int DH_generate_parameters_ex(DH *dh, int prime_bits, int generator, BN_GENCB *c
     if (!BN_set_word(t2, 3)) {
       goto err;
     }
-    /* BN_set_word(t3,7); just have to miss
-     * out on these ones :-( */
+    // BN_set_word(t3,7); just have to miss
+    // out on these ones :-(
     g = 5;
   } else {
-    /* in the general case, don't worry if 'generator' is a
-     * generator or not: since we are using safe primes,
-     * it will generate either an order-q or an order-2q group,
-     * which both is OK */
+    // in the general case, don't worry if 'generator' is a
+    // generator or not: since we are using safe primes,
+    // it will generate either an order-q or an order-2q group,
+    // which both is OK
     if (!BN_set_word(t1, 2)) {
       goto err;
     }
@@ -234,11 +292,8 @@ err:
 int DH_generate_key(DH *dh) {
   int ok = 0;
   int generate_new_key = 0;
-  unsigned l;
   BN_CTX *ctx = NULL;
-  BN_MONT_CTX *mont = NULL;
   BIGNUM *pub_key = NULL, *priv_key = NULL;
-  BIGNUM local_priv;
 
   if (BN_num_bits(dh->p) > OPENSSL_DH_MAX_MODULUS_BITS) {
     OPENSSL_PUT_ERROR(DH, DH_R_MODULUS_TOO_LARGE);
@@ -269,31 +324,36 @@ int DH_generate_key(DH *dh) {
     pub_key = dh->pub_key;
   }
 
-  mont = BN_MONT_CTX_set_locked(&dh->method_mont_p, &dh->method_mont_p_lock,
-                                dh->p, ctx);
-  if (!mont) {
+  if (!BN_MONT_CTX_set_locked(&dh->method_mont_p, &dh->method_mont_p_lock,
+                              dh->p, ctx)) {
     goto err;
   }
 
   if (generate_new_key) {
     if (dh->q) {
-      do {
-        if (!BN_rand_range(priv_key, dh->q)) {
+      if (!BN_rand_range_ex(priv_key, 2, dh->q)) {
+        goto err;
+      }
+    } else {
+      // secret exponent length
+      unsigned priv_bits = dh->priv_length;
+      if (priv_bits == 0) {
+        const unsigned p_bits = BN_num_bits(dh->p);
+        if (p_bits == 0) {
           goto err;
         }
-      } while (BN_is_zero(priv_key) || BN_is_one(priv_key));
-    } else {
-      /* secret exponent length */
-      DH_check_standard_parameters(dh);
-      l = dh->priv_length ? dh->priv_length : BN_num_bits(dh->p) - 1;
-      if (!BN_rand(priv_key, l, 0, 0)) {
+
+        priv_bits = p_bits - 1;
+      }
+
+      if (!BN_rand(priv_key, priv_bits, BN_RAND_TOP_ONE, BN_RAND_BOTTOM_ANY)) {
         goto err;
       }
     }
   }
 
-  BN_with_flags(&local_priv, priv_key, BN_FLG_CONSTTIME);
-  if (!BN_mod_exp_mont(pub_key, dh->g, &local_priv, dh->p, ctx, mont)) {
+  if (!BN_mod_exp_mont_consttime(pub_key, dh->g, priv_key, dh->p, ctx,
+                                 dh->method_mont_p)) {
     goto err;
   }
 
@@ -318,11 +378,9 @@ err:
 
 int DH_compute_key(unsigned char *out, const BIGNUM *peers_key, DH *dh) {
   BN_CTX *ctx = NULL;
-  BN_MONT_CTX *mont = NULL;
   BIGNUM *shared_key;
   int ret = -1;
   int check_result;
-  BIGNUM local_priv;
 
   if (BN_num_bits(dh->p) > OPENSSL_DH_MAX_MODULUS_BITS) {
     OPENSSL_PUT_ERROR(DH, DH_R_MODULUS_TOO_LARGE);
@@ -344,9 +402,8 @@ int DH_compute_key(unsigned char *out, const BIGNUM *peers_key, DH *dh) {
     goto err;
   }
 
-  mont = BN_MONT_CTX_set_locked(&dh->method_mont_p, &dh->method_mont_p_lock,
-                                dh->p, ctx);
-  if (!mont) {
+  if (!BN_MONT_CTX_set_locked(&dh->method_mont_p, &dh->method_mont_p_lock,
+                              dh->p, ctx)) {
     goto err;
   }
 
@@ -355,9 +412,8 @@ int DH_compute_key(unsigned char *out, const BIGNUM *peers_key, DH *dh) {
     goto err;
   }
 
-  BN_with_flags(&local_priv, dh->priv_key, BN_FLG_CONSTTIME);
-  if (!BN_mod_exp_mont(shared_key, peers_key, &local_priv, dh->p, ctx,
-                       mont)) {
+  if (!BN_mod_exp_mont_consttime(shared_key, peers_key, dh->priv_key, dh->p,
+                                 ctx, dh->method_mont_p)) {
     OPENSSL_PUT_ERROR(DH, ERR_R_BN_LIB);
     goto err;
   }
@@ -445,9 +501,9 @@ DH *DHparams_dup(const DH *dh) {
 }
 
 int DH_get_ex_new_index(long argl, void *argp, CRYPTO_EX_unused *unused,
-                        CRYPTO_EX_dup *dup_func, CRYPTO_EX_free *free_func) {
+                        CRYPTO_EX_dup *dup_unused, CRYPTO_EX_free *free_func) {
   int index;
-  if (!CRYPTO_get_ex_new_index(&g_ex_data_class, &index, argl, argp, dup_func,
+  if (!CRYPTO_get_ex_new_index(&g_ex_data_class, &index, argl, argp,
                                free_func)) {
     return -1;
   }
