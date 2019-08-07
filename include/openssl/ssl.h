@@ -5068,12 +5068,11 @@ BSSL_NAMESPACE_END
 #define SSL_R_TLSV1_UNKNOWN_PSK_IDENTITY 1115
 #define SSL_R_TLSV1_CERTIFICATE_REQUIRED 1116
 
-// TODO(Art): not sure if it is still necessary
-// // airtime: start
-// // See https://github.com/chriskohlhoff/asio/issues/52
-// #ifndef SSL_R_SHORT_READ
-// #  define SSL_R_SHORT_READ SSL_R_UNEXPECTED_RECORD
-// #endif
-// // airtime: end
+// airtime: start
+// See https://github.com/chriskohlhoff/asio/issues/52
+#ifndef SSL_R_SHORT_READ
+#  define SSL_R_SHORT_READ SSL_R_UNEXPECTED_RECORD
+#endif
+// airtime: end
 
 #endif  // OPENSSL_HEADER_SSL_H
