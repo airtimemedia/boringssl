@@ -14,13 +14,12 @@
 
 #include "internal.h"
 
-#if defined(OPENSSL_WINDOWS) && !defined(OPENSSL_NO_THREADS)
+#if defined(OPENSSL_WINDOWS_THREADS)
 
-#pragma warning(push, 3)
+OPENSSL_MSVC_PRAGMA(warning(push, 3))
 #include <windows.h>
-#pragma warning(pop)
+OPENSSL_MSVC_PRAGMA(warning(pop))
 
-#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -28,113 +27,62 @@
 #include <openssl/type_check.h>
 
 
-OPENSSL_COMPILE_ASSERT(sizeof(CRYPTO_MUTEX) >= sizeof(CRITICAL_SECTION),
-                       CRYPTO_MUTEX_too_small);
+OPENSSL_STATIC_ASSERT(sizeof(CRYPTO_MUTEX) >= sizeof(SRWLOCK),
+                      "CRYPTO_MUTEX is too small");
 
-union run_once_arg_t {
-  void (*func)(void);
-  void *data;
-};
-
-static void run_once(CRYPTO_once_t *once, void (*init)(union run_once_arg_t),
-                     union run_once_arg_t arg) {
-  /* Values must be aligned. */
-  assert((((uintptr_t) once) & 3) == 0);
-
-  /* This assumes that reading *once has acquire semantics. This should be true
-   * on x86 and x86-64, where we expect Windows to run. */
-#if !defined(OPENSSL_X86) && !defined(OPENSSL_X86_64)
-#error "Windows once code may not work on other platforms." \
-       "You can use InitOnceBeginInitialize on >=Vista"
-#endif
-  if (*once == 1) {
-    return;
-  }
-
-  for (;;) {
-    switch (InterlockedCompareExchange(once, 2, 0)) {
-      case 0:
-        /* The value was zero so we are the first thread to call |CRYPTO_once|
-         * on it. */
-        init(arg);
-        /* Write one to indicate that initialisation is complete. */
-        InterlockedExchange(once, 1);
-        return;
-
-      case 1:
-        /* Another thread completed initialisation between our fast-path check
-         * and |InterlockedCompareExchange|. */
-        return;
-
-      case 2:
-        /* Another thread is running the initialisation. Switch to it then try
-         * again. */
-        SwitchToThread();
-        break;
-
-      default:
-        abort();
-    }
-  }
+static BOOL CALLBACK call_once_init(INIT_ONCE *once, void *arg, void **out) {
+  void (**init)(void) = (void (**)(void))arg;
+  (**init)();
+  return TRUE;
 }
 
-static void call_once_init(union run_once_arg_t arg) {
-  arg.func();
-}
-
-void CRYPTO_once(CRYPTO_once_t *in_once, void (*init)(void)) {
-  union run_once_arg_t arg;
-  arg.func = init;
-  run_once(in_once, call_once_init, arg);
+void CRYPTO_once(CRYPTO_once_t *once, void (*init)(void)) {
+  if (!InitOnceExecuteOnce(once, call_once_init, &init, NULL)) {
+    abort();
+  }
 }
 
 void CRYPTO_MUTEX_init(CRYPTO_MUTEX *lock) {
-  if (!InitializeCriticalSectionAndSpinCount((CRITICAL_SECTION *) lock, 0x400)) {
-    abort();
-  }
+  InitializeSRWLock((SRWLOCK *) lock);
 }
 
 void CRYPTO_MUTEX_lock_read(CRYPTO_MUTEX *lock) {
-  /* Since we have to support Windows XP, read locks are actually exclusive. */
-  EnterCriticalSection((CRITICAL_SECTION *) lock);
+  AcquireSRWLockShared((SRWLOCK *) lock);
 }
 
 void CRYPTO_MUTEX_lock_write(CRYPTO_MUTEX *lock) {
-  EnterCriticalSection((CRITICAL_SECTION *) lock);
+  AcquireSRWLockExclusive((SRWLOCK *) lock);
 }
 
-void CRYPTO_MUTEX_unlock(CRYPTO_MUTEX *lock) {
-  LeaveCriticalSection((CRITICAL_SECTION *) lock);
+void CRYPTO_MUTEX_unlock_read(CRYPTO_MUTEX *lock) {
+  ReleaseSRWLockShared((SRWLOCK *) lock);
+}
+
+void CRYPTO_MUTEX_unlock_write(CRYPTO_MUTEX *lock) {
+  ReleaseSRWLockExclusive((SRWLOCK *) lock);
 }
 
 void CRYPTO_MUTEX_cleanup(CRYPTO_MUTEX *lock) {
-  DeleteCriticalSection((CRITICAL_SECTION *) lock);
-}
-
-static void static_lock_init(union run_once_arg_t arg) {
-  struct CRYPTO_STATIC_MUTEX *lock = arg.data;
-  if (!InitializeCriticalSectionAndSpinCount(&lock->lock, 0x400)) {
-    abort();
-  }
+  // SRWLOCKs require no cleanup.
 }
 
 void CRYPTO_STATIC_MUTEX_lock_read(struct CRYPTO_STATIC_MUTEX *lock) {
-  union run_once_arg_t arg;
-  arg.data = lock;
-  /* Since we have to support Windows XP, read locks are actually exclusive. */
-  run_once(&lock->once, static_lock_init, arg);
-  EnterCriticalSection(&lock->lock);
+  AcquireSRWLockShared(&lock->lock);
 }
 
 void CRYPTO_STATIC_MUTEX_lock_write(struct CRYPTO_STATIC_MUTEX *lock) {
-  CRYPTO_STATIC_MUTEX_lock_read(lock);
+  AcquireSRWLockExclusive(&lock->lock);
 }
 
-void CRYPTO_STATIC_MUTEX_unlock(struct CRYPTO_STATIC_MUTEX *lock) {
-  LeaveCriticalSection(&lock->lock);
+void CRYPTO_STATIC_MUTEX_unlock_read(struct CRYPTO_STATIC_MUTEX *lock) {
+  ReleaseSRWLockShared(&lock->lock);
 }
 
-static CRITICAL_SECTION g_destructors_lock;
+void CRYPTO_STATIC_MUTEX_unlock_write(struct CRYPTO_STATIC_MUTEX *lock) {
+  ReleaseSRWLockExclusive(&lock->lock);
+}
+
+static SRWLOCK g_destructors_lock = SRWLOCK_INIT;
 static thread_local_destructor_t g_destructors[NUM_OPENSSL_THREAD_LOCALS];
 
 static CRYPTO_once_t g_thread_local_init_once = CRYPTO_ONCE_INIT;
@@ -142,17 +90,18 @@ static DWORD g_thread_local_key;
 static int g_thread_local_failed;
 
 static void thread_local_init(void) {
-  if (!InitializeCriticalSectionAndSpinCount(&g_destructors_lock, 0x400)) {
-    g_thread_local_failed = 1;
-    return;
-  }
   g_thread_local_key = TlsAlloc();
   g_thread_local_failed = (g_thread_local_key == TLS_OUT_OF_INDEXES);
 }
 
-static void NTAPI thread_local_destructor(PVOID module,
-                                          DWORD reason, PVOID reserved) {
-  if (DLL_THREAD_DETACH != reason && DLL_PROCESS_DETACH != reason) {
+static void NTAPI thread_local_destructor(PVOID module, DWORD reason,
+                                          PVOID reserved) {
+  // Only free memory on |DLL_THREAD_DETACH|, not |DLL_PROCESS_DETACH|. In
+  // VS2015's debug runtime, the C runtime has been unloaded by the time
+  // |DLL_PROCESS_DETACH| runs. See https://crbug.com/575795. This is consistent
+  // with |pthread_key_create| which does not call destructors on process exit,
+  // only thread exit.
+  if (reason != DLL_THREAD_DETACH) {
     return;
   }
 
@@ -168,12 +117,11 @@ static void NTAPI thread_local_destructor(PVOID module,
 
   thread_local_destructor_t destructors[NUM_OPENSSL_THREAD_LOCALS];
 
-  EnterCriticalSection(&g_destructors_lock);
-  memcpy(destructors, g_destructors, sizeof(destructors));
-  LeaveCriticalSection(&g_destructors_lock);
+  AcquireSRWLockExclusive(&g_destructors_lock);
+  OPENSSL_memcpy(destructors, g_destructors, sizeof(destructors));
+  ReleaseSRWLockExclusive(&g_destructors_lock);
 
-  unsigned i;
-  for (i = 0; i < NUM_OPENSSL_THREAD_LOCALS; i++) {
+  for (unsigned i = 0; i < NUM_OPENSSL_THREAD_LOCALS; i++) {
     if (destructors[i] != NULL) {
       destructors[i](pointers[i]);
     }
@@ -182,60 +130,84 @@ static void NTAPI thread_local_destructor(PVOID module,
   OPENSSL_free(pointers);
 }
 
-/* Thread Termination Callbacks.
- *
- * Windows doesn't support a per-thread destructor with its TLS primitives.
- * So, we build it manually by inserting a function to be called on each
- * thread's exit. This magic is from http://www.codeproject.com/threads/tls.asp
- * and it works for VC++ 7.0 and later.
- *
- * Force a reference to _tls_used to make the linker create the TLS directory
- * if it's not already there. (E.g. if __declspec(thread) is not used). Force
- * a reference to p_thread_callback_boringssl to prevent whole program
- * optimization from discarding the variable. */
+// Thread Termination Callbacks.
+//
+// Windows doesn't support a per-thread destructor with its TLS primitives.
+// So, we build it manually by inserting a function to be called on each
+// thread's exit. This magic is from http://www.codeproject.com/threads/tls.asp
+// and it works for VC++ 7.0 and later.
+//
+// Force a reference to _tls_used to make the linker create the TLS directory
+// if it's not already there. (E.g. if __declspec(thread) is not used). Force
+// a reference to p_thread_callback_boringssl to prevent whole program
+// optimization from discarding the variable.
+//
+// Note, in the prefixed build, |p_thread_callback_boringssl| may be a macro.
+#define STRINGIFY(x) #x
+#define EXPAND_AND_STRINGIFY(x) STRINGIFY(x)
 #ifdef _WIN64
-#pragma comment(linker, "/INCLUDE:_tls_used")
-#pragma comment(linker, "/INCLUDE:p_thread_callback_boringssl")
+__pragma(comment(linker, "/INCLUDE:_tls_used"))
+__pragma(comment(
+    linker, "/INCLUDE:" EXPAND_AND_STRINGIFY(p_thread_callback_boringssl)))
 #else
-#pragma comment(linker, "/INCLUDE:__tls_used")
-#pragma comment(linker, "/INCLUDE:_p_thread_callback_boringssl")
+__pragma(comment(linker, "/INCLUDE:__tls_used"))
+__pragma(comment(
+    linker, "/INCLUDE:_" EXPAND_AND_STRINGIFY(p_thread_callback_boringssl)))
 #endif
 
-/* .CRT$XLA to .CRT$XLZ is an array of PIMAGE_TLS_CALLBACK pointers that are
- * called automatically by the OS loader code (not the CRT) when the module is
- * loaded and on thread creation. They are NOT called if the module has been
- * loaded by a LoadLibrary() call. It must have implicitly been loaded at
- * process startup.
- *
- * By implicitly loaded, I mean that it is directly referenced by the main EXE
- * or by one of its dependent DLLs. Delay-loaded DLL doesn't count as being
- * implicitly loaded.
- *
- * See VC\crt\src\tlssup.c for reference. */
+// .CRT$XLA to .CRT$XLZ is an array of PIMAGE_TLS_CALLBACK pointers that are
+// called automatically by the OS loader code (not the CRT) when the module is
+// loaded and on thread creation. They are NOT called if the module has been
+// loaded by a LoadLibrary() call. It must have implicitly been loaded at
+// process startup.
+//
+// By implicitly loaded, I mean that it is directly referenced by the main EXE
+// or by one of its dependent DLLs. Delay-loaded DLL doesn't count as being
+// implicitly loaded.
+//
+// See VC\crt\src\tlssup.c for reference.
 
-/* The linker must not discard p_thread_callback_boringssl. (We force a reference
- * to this variable with a linker /INCLUDE:symbol pragma to ensure that.) If
- * this variable is discarded, the OnThreadExit function will never be
- * called. */
+// The linker must not discard p_thread_callback_boringssl. (We force a
+// reference to this variable with a linker /INCLUDE:symbol pragma to ensure
+// that.) If this variable is discarded, the OnThreadExit function will never
+// be called.
 #ifdef _WIN64
 
-/* .CRT section is merged with .rdata on x64 so it must be constant data. */
+// .CRT section is merged with .rdata on x64 so it must be constant data.
 #pragma const_seg(".CRT$XLC")
-/* When defining a const variable, it must have external linkage to be sure the
- * linker doesn't discard it. */
+// When defining a const variable, it must have external linkage to be sure the
+// linker doesn't discard it.
 extern const PIMAGE_TLS_CALLBACK p_thread_callback_boringssl;
 const PIMAGE_TLS_CALLBACK p_thread_callback_boringssl = thread_local_destructor;
-/* Reset the default section. */
+// Reset the default section.
 #pragma const_seg()
 
 #else
 
 #pragma data_seg(".CRT$XLC")
 PIMAGE_TLS_CALLBACK p_thread_callback_boringssl = thread_local_destructor;
-/* Reset the default section. */
+// Reset the default section.
 #pragma data_seg()
 
-#endif  /* _WIN64 */
+#endif  // _WIN64
+
+static void **get_thread_locals(void) {
+  // |TlsGetValue| clears the last error even on success, so that callers may
+  // distinguish it successfully returning NULL or failing. It is documented to
+  // never fail if the argument is a valid index from |TlsAlloc|, so we do not
+  // need to handle this.
+  //
+  // However, this error-mangling behavior interferes with the caller's use of
+  // |GetLastError|. In particular |SSL_get_error| queries the error queue to
+  // determine whether the caller should look at the OS's errors. To avoid
+  // destroying state, save and restore the Windows error.
+  //
+  // https://msdn.microsoft.com/en-us/library/windows/desktop/ms686812(v=vs.85).aspx
+  DWORD last_error = GetLastError();
+  void **ret = TlsGetValue(g_thread_local_key);
+  SetLastError(last_error);
+  return ret;
+}
 
 void *CRYPTO_get_thread_local(thread_local_data_t index) {
   CRYPTO_once(&g_thread_local_init_once, thread_local_init);
@@ -243,7 +215,7 @@ void *CRYPTO_get_thread_local(thread_local_data_t index) {
     return NULL;
   }
 
-  void **pointers = TlsGetValue(g_thread_local_key);
+  void **pointers = get_thread_locals();
   if (pointers == NULL) {
     return NULL;
   }
@@ -258,14 +230,14 @@ int CRYPTO_set_thread_local(thread_local_data_t index, void *value,
     return 0;
   }
 
-  void **pointers = TlsGetValue(g_thread_local_key);
+  void **pointers = get_thread_locals();
   if (pointers == NULL) {
     pointers = OPENSSL_malloc(sizeof(void *) * NUM_OPENSSL_THREAD_LOCALS);
     if (pointers == NULL) {
       destructor(value);
       return 0;
     }
-    memset(pointers, 0, sizeof(void *) * NUM_OPENSSL_THREAD_LOCALS);
+    OPENSSL_memset(pointers, 0, sizeof(void *) * NUM_OPENSSL_THREAD_LOCALS);
     if (TlsSetValue(g_thread_local_key, pointers) == 0) {
       OPENSSL_free(pointers);
       destructor(value);
@@ -273,12 +245,12 @@ int CRYPTO_set_thread_local(thread_local_data_t index, void *value,
     }
   }
 
-  EnterCriticalSection(&g_destructors_lock);
+  AcquireSRWLockExclusive(&g_destructors_lock);
   g_destructors[index] = destructor;
-  LeaveCriticalSection(&g_destructors_lock);
+  ReleaseSRWLockExclusive(&g_destructors_lock);
 
   pointers[index] = value;
   return 1;
 }
 
-#endif  /* OPENSSL_WINDOWS && !OPENSSL_NO_THREADS */
+#endif  // OPENSSL_WINDOWS_THREADS

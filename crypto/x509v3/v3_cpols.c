@@ -69,6 +69,7 @@
 #include <openssl/stack.h>
 #include <openssl/x509v3.h>
 
+#include "internal.h"
 #include "pcy_int.h"
 
 /* Certificate policies extension support: this one is a bit complex... */
@@ -190,6 +191,11 @@ static STACK_OF(POLICYINFO) *r2i_certpol(X509V3_EXT_METHOD *method,
                 goto err;
             }
             pol = POLICYINFO_new();
+            if (pol == NULL) {
+                OPENSSL_PUT_ERROR(X509V3, ERR_R_MALLOC_FAILURE);
+                ASN1_OBJECT_free(pobj);
+                goto err;
+            }
             pol->policyid = pobj;
         }
         if (!sk_POLICYINFO_push(pols, pol)) {
@@ -226,7 +232,7 @@ static POLICYINFO *policy_section(X509V3_CTX *ctx,
             }
             pol->policyid = pobj;
 
-        } else if (!name_cmp(cnf->name, "CPS")) {
+        } else if (!x509v3_name_cmp(cnf->name, "CPS")) {
             if (!pol->qualifiers)
                 pol->qualifiers = sk_POLICYQUALINFO_new_null();
             if (!(qual = POLICYQUALINFO_new()))
@@ -246,7 +252,7 @@ static POLICYINFO *policy_section(X509V3_CTX *ctx,
             if (!ASN1_STRING_set(qual->d.cpsuri, cnf->value,
                                  strlen(cnf->value)))
                 goto merr;
-        } else if (!name_cmp(cnf->name, "userNotice")) {
+        } else if (!x509v3_name_cmp(cnf->name, "userNotice")) {
             STACK_OF(CONF_VALUE) *unot;
             if (*cnf->value != '@') {
                 OPENSSL_PUT_ERROR(X509V3, X509V3_R_EXPECTED_A_SECTION_NAME);
@@ -395,10 +401,10 @@ static int nref_nos(STACK_OF(ASN1_INTEGER) *nnums, STACK_OF(CONF_VALUE) *nos)
     return 1;
 
  merr:
+    ASN1_INTEGER_free(aint);
     OPENSSL_PUT_ERROR(X509V3, ERR_R_MALLOC_FAILURE);
 
  err:
-    sk_ASN1_INTEGER_pop_free(nnums, ASN1_STRING_free);
     return 0;
 }
 
@@ -463,9 +469,15 @@ static void print_notice(BIO *out, USERNOTICE *notice, int indent)
             num = sk_ASN1_INTEGER_value(ref->noticenos, i);
             if (i)
                 BIO_puts(out, ", ");
-            tmp = i2s_ASN1_INTEGER(NULL, num);
-            BIO_puts(out, tmp);
-            OPENSSL_free(tmp);
+            if (num == NULL)
+                BIO_puts(out, "(null)");
+            else {
+                tmp = i2s_ASN1_INTEGER(NULL, num);
+                if (tmp == NULL)
+                    return;
+                BIO_puts(out, tmp);
+                OPENSSL_free(tmp);
+            }
         }
         BIO_puts(out, "\n");
     }

@@ -21,11 +21,21 @@ these patches in multiple places was growing steadily.
 Currently BoringSSL is the SSL library in Chrome/Chromium, Android (but it's
 not part of the NDK) and a number of other apps/programs.
 
+Project links:
+
+  * [API documentation](https://commondatastorage.googleapis.com/chromium-boringssl-docs/headers.html)
+  * [Bug tracker](https://bugs.chromium.org/p/boringssl/issues/list)
+  * [CI](https://ci.chromium.org/p/boringssl/g/main/console)
+  * [Code review](https://boringssl-review.googlesource.com)
+
 There are other files in this directory which might be helpful:
 
   * [PORTING.md](/PORTING.md): how to port OpenSSL-using code to BoringSSL.
   * [BUILDING.md](/BUILDING.md): how to build BoringSSL
+  * [INCORPORATING.md](/INCORPORATING.md): how to incorporate BoringSSL into a project.
+  * [API-CONVENTIONS.md](/API-CONVENTIONS.md): general API conventions for BoringSSL consumers and developers.
   * [STYLE.md](/STYLE.md): rules and guidelines for coding style.
   * include/openssl: public headers with API documentation in comments. Also [available online](https://commondatastorage.googleapis.com/chromium-boringssl-docs/headers.html).
   * [FUZZING.md](/FUZZING.md): information about fuzzing BoringSSL.
   * [CONTRIBUTING.md](/CONTRIBUTING.md): how to contribute to BoringSSL.
+  * [BREAKING-CHANGES.md](/BREAKING-CHANGES.md): notes on potentially-breaking changes.

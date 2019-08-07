@@ -56,10 +56,14 @@
 
 #include <openssl/asn1.h>
 
+#include <limits.h>
 #include <string.h>
 
 #include <openssl/err.h>
 #include <openssl/mem.h>
+
+#include "../internal.h"
+
 
 int ASN1_BIT_STRING_set(ASN1_BIT_STRING *x, unsigned char *d, int len)
 {
@@ -115,7 +119,7 @@ int i2c_ASN1_BIT_STRING(ASN1_BIT_STRING *a, unsigned char **pp)
 
     *(p++) = (unsigned char)bits;
     d = a->data;
-    memcpy(p, d, len);
+    OPENSSL_memcpy(p, d, len);
     p += len;
     if (len > 0)
         p[-1] &= (0xff << bits);
@@ -134,6 +138,11 @@ ASN1_BIT_STRING *c2i_ASN1_BIT_STRING(ASN1_BIT_STRING **a,
     if (len < 1) {
         OPENSSL_PUT_ERROR(ASN1, ASN1_R_STRING_TOO_SHORT);
         goto err;
+    }
+
+    if (len > INT_MAX) {
+      OPENSSL_PUT_ERROR(ASN1, ASN1_R_STRING_TOO_LONG);
+      goto err;
     }
 
     if ((a == NULL) || ((*a) == NULL)) {
@@ -162,7 +171,7 @@ ASN1_BIT_STRING *c2i_ASN1_BIT_STRING(ASN1_BIT_STRING **a,
             OPENSSL_PUT_ERROR(ASN1, ERR_R_MALLOC_FAILURE);
             goto err;
         }
-        memcpy(s, p, (int)len);
+        OPENSSL_memcpy(s, p, (int)len);
         s[len - 1] &= (0xff << padding);
         p += len;
     } else
@@ -208,14 +217,13 @@ int ASN1_BIT_STRING_set_bit(ASN1_BIT_STRING *a, int n, int value)
         if (a->data == NULL)
             c = (unsigned char *)OPENSSL_malloc(w + 1);
         else
-            c = (unsigned char *)OPENSSL_realloc_clean(a->data,
-                                                       a->length, w + 1);
+            c = (unsigned char *)OPENSSL_realloc(a->data, w + 1);
         if (c == NULL) {
             OPENSSL_PUT_ERROR(ASN1, ERR_R_MALLOC_FAILURE);
             return 0;
         }
         if (w + 1 - a->length > 0)
-            memset(c + a->length, 0, w + 1 - a->length);
+            OPENSSL_memset(c + a->length, 0, w + 1 - a->length);
         a->data = c;
         a->length = w + 1;
     }

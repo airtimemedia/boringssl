@@ -56,6 +56,7 @@
 
 #include <openssl/obj.h>
 
+#include <inttypes.h>
 #include <limits.h>
 #include <string.h>
 
@@ -71,8 +72,10 @@
 #include "../internal.h"
 
 
+DEFINE_LHASH_OF(ASN1_OBJECT)
+
 static struct CRYPTO_STATIC_MUTEX global_added_lock = CRYPTO_STATIC_MUTEX_INIT;
-/* These globals are protected by |global_added_lock|. */
+// These globals are protected by |global_added_lock|.
 static LHASH_OF(ASN1_OBJECT) *global_added_by_data = NULL;
 static LHASH_OF(ASN1_OBJECT) *global_added_by_nid = NULL;
 static LHASH_OF(ASN1_OBJECT) *global_added_by_short_name = NULL;
@@ -87,7 +90,7 @@ static int obj_next_nid(void) {
 
   CRYPTO_STATIC_MUTEX_lock_write(&global_next_nid_lock);
   ret = global_next_nid++;
-  CRYPTO_STATIC_MUTEX_unlock(&global_next_nid_lock);
+  CRYPTO_STATIC_MUTEX_unlock_write(&global_next_nid_lock);
 
   return ret;
 }
@@ -102,7 +105,7 @@ ASN1_OBJECT *OBJ_dup(const ASN1_OBJECT *o) {
   }
 
   if (!(o->flags & ASN1_OBJECT_FLAG_DYNAMIC)) {
-    /* TODO(fork): this is a little dangerous. */
+    // TODO(fork): this is a little dangerous.
     return (ASN1_OBJECT *)o;
   }
 
@@ -118,10 +121,10 @@ ASN1_OBJECT *OBJ_dup(const ASN1_OBJECT *o) {
     goto err;
   }
   if (o->data != NULL) {
-    memcpy(data, o->data, o->length);
+    OPENSSL_memcpy(data, o->data, o->length);
   }
 
-  /* once data is attached to an object, it remains const */
+  // once data is attached to an object, it remains const
   r->data = data;
   r->length = o->length;
   r->nid = o->nid;
@@ -164,12 +167,28 @@ int OBJ_cmp(const ASN1_OBJECT *a, const ASN1_OBJECT *b) {
   if (ret) {
     return ret;
   }
-  return memcmp(a->data, b->data, a->length);
+  return OPENSSL_memcmp(a->data, b->data, a->length);
 }
 
-/* obj_cmp is called to search the kNIDsInOIDOrder array. The |key| argument is
- * an |ASN1_OBJECT|* that we're looking for and |element| is a pointer to an
- * unsigned int in the array. */
+const uint8_t *OBJ_get0_data(const ASN1_OBJECT *obj) {
+  if (obj == NULL) {
+    return NULL;
+  }
+
+  return obj->data;
+}
+
+size_t OBJ_length(const ASN1_OBJECT *obj) {
+  if (obj == NULL || obj->length < 0) {
+    return 0;
+  }
+
+  return (size_t)obj->length;
+}
+
+// obj_cmp is called to search the kNIDsInOIDOrder array. The |key| argument is
+// an |ASN1_OBJECT|* that we're looking for and |element| is a pointer to an
+// unsigned int in the array.
 static int obj_cmp(const void *key, const void *element) {
   unsigned nid = *((const unsigned*) element);
   const ASN1_OBJECT *a = key;
@@ -180,7 +199,7 @@ static int obj_cmp(const void *key, const void *element) {
   } else if (a->length > b->length) {
     return 1;
   }
-  return memcmp(a->data, b->data, a->length);
+  return OPENSSL_memcmp(a->data, b->data, a->length);
 }
 
 int OBJ_obj2nid(const ASN1_OBJECT *obj) {
@@ -200,13 +219,14 @@ int OBJ_obj2nid(const ASN1_OBJECT *obj) {
 
     match = lh_ASN1_OBJECT_retrieve(global_added_by_data, obj);
     if (match != NULL) {
-      CRYPTO_STATIC_MUTEX_unlock(&global_added_lock);
+      CRYPTO_STATIC_MUTEX_unlock_read(&global_added_lock);
       return match->nid;
     }
   }
-  CRYPTO_STATIC_MUTEX_unlock(&global_added_lock);
+  CRYPTO_STATIC_MUTEX_unlock_read(&global_added_lock);
 
-  nid_ptr = bsearch(obj, kNIDsInOIDOrder, NUM_OBJ, sizeof(unsigned), obj_cmp);
+  nid_ptr = bsearch(obj, kNIDsInOIDOrder, OPENSSL_ARRAY_SIZE(kNIDsInOIDOrder),
+                    sizeof(kNIDsInOIDOrder[0]), obj_cmp);
   if (nid_ptr == NULL) {
     return NID_undef;
   }
@@ -215,17 +235,21 @@ int OBJ_obj2nid(const ASN1_OBJECT *obj) {
 }
 
 int OBJ_cbs2nid(const CBS *cbs) {
+  if (CBS_len(cbs) > INT_MAX) {
+    return NID_undef;
+  }
+
   ASN1_OBJECT obj;
-  memset(&obj, 0, sizeof(obj));
+  OPENSSL_memset(&obj, 0, sizeof(obj));
   obj.data = CBS_data(cbs);
-  obj.length = CBS_len(cbs);
+  obj.length = (int)CBS_len(cbs);
 
   return OBJ_obj2nid(&obj);
 }
 
-/* short_name_cmp is called to search the kNIDsInShortNameOrder array. The
- * |key| argument is name that we're looking for and |element| is a pointer to
- * an unsigned int in the array. */
+// short_name_cmp is called to search the kNIDsInShortNameOrder array. The
+// |key| argument is name that we're looking for and |element| is a pointer to
+// an unsigned int in the array.
 static int short_name_cmp(const void *key, const void *element) {
   const char *name = (const char *) key;
   unsigned nid = *((unsigned*) element);
@@ -243,13 +267,15 @@ int OBJ_sn2nid(const char *short_name) {
     template.sn = short_name;
     match = lh_ASN1_OBJECT_retrieve(global_added_by_short_name, &template);
     if (match != NULL) {
-      CRYPTO_STATIC_MUTEX_unlock(&global_added_lock);
+      CRYPTO_STATIC_MUTEX_unlock_read(&global_added_lock);
       return match->nid;
     }
   }
-  CRYPTO_STATIC_MUTEX_unlock(&global_added_lock);
+  CRYPTO_STATIC_MUTEX_unlock_read(&global_added_lock);
 
-  nid_ptr = bsearch(short_name, kNIDsInShortNameOrder, NUM_SN, sizeof(unsigned), short_name_cmp);
+  nid_ptr = bsearch(short_name, kNIDsInShortNameOrder,
+                    OPENSSL_ARRAY_SIZE(kNIDsInShortNameOrder),
+                    sizeof(kNIDsInShortNameOrder[0]), short_name_cmp);
   if (nid_ptr == NULL) {
     return NID_undef;
   }
@@ -257,9 +283,9 @@ int OBJ_sn2nid(const char *short_name) {
   return kObjects[*nid_ptr].nid;
 }
 
-/* long_name_cmp is called to search the kNIDsInLongNameOrder array. The
- * |key| argument is name that we're looking for and |element| is a pointer to
- * an unsigned int in the array. */
+// long_name_cmp is called to search the kNIDsInLongNameOrder array. The
+// |key| argument is name that we're looking for and |element| is a pointer to
+// an unsigned int in the array.
 static int long_name_cmp(const void *key, const void *element) {
   const char *name = (const char *) key;
   unsigned nid = *((unsigned*) element);
@@ -277,13 +303,15 @@ int OBJ_ln2nid(const char *long_name) {
     template.ln = long_name;
     match = lh_ASN1_OBJECT_retrieve(global_added_by_long_name, &template);
     if (match != NULL) {
-      CRYPTO_STATIC_MUTEX_unlock(&global_added_lock);
+      CRYPTO_STATIC_MUTEX_unlock_read(&global_added_lock);
       return match->nid;
     }
   }
-  CRYPTO_STATIC_MUTEX_unlock(&global_added_lock);
+  CRYPTO_STATIC_MUTEX_unlock_read(&global_added_lock);
 
-  nid_ptr = bsearch(long_name, kNIDsInLongNameOrder, NUM_LN, sizeof(unsigned), long_name_cmp);
+  nid_ptr = bsearch(long_name, kNIDsInLongNameOrder,
+                    OPENSSL_ARRAY_SIZE(kNIDsInLongNameOrder),
+                    sizeof(kNIDsInLongNameOrder[0]), long_name_cmp);
   if (nid_ptr == NULL) {
     return NID_undef;
   }
@@ -330,11 +358,11 @@ const ASN1_OBJECT *OBJ_nid2obj(int nid) {
     template.nid = nid;
     match = lh_ASN1_OBJECT_retrieve(global_added_by_nid, &template);
     if (match != NULL) {
-      CRYPTO_STATIC_MUTEX_unlock(&global_added_lock);
+      CRYPTO_STATIC_MUTEX_unlock_read(&global_added_lock);
       return match;
     }
   }
-  CRYPTO_STATIC_MUTEX_unlock(&global_added_lock);
+  CRYPTO_STATIC_MUTEX_unlock_read(&global_added_lock);
 
 err:
   OPENSSL_PUT_ERROR(OBJ, OBJ_R_UNKNOWN_NID);
@@ -359,16 +387,30 @@ const char *OBJ_nid2ln(int nid) {
   return obj->ln;
 }
 
-ASN1_OBJECT *OBJ_txt2obj(const char *s, int dont_search_names) {
-  int nid = NID_undef;
-  ASN1_OBJECT *op = NULL;
-  unsigned char *buf;
-  unsigned char *p;
-  const unsigned char *bufp;
-  int contents_len, total_len;
+static ASN1_OBJECT *create_object_with_text_oid(int (*get_nid)(void),
+                                                const char *oid,
+                                                const char *short_name,
+                                                const char *long_name) {
+  uint8_t *buf;
+  size_t len;
+  CBB cbb;
+  if (!CBB_init(&cbb, 32) ||
+      !CBB_add_asn1_oid_from_text(&cbb, oid, strlen(oid)) ||
+      !CBB_finish(&cbb, &buf, &len)) {
+    OPENSSL_PUT_ERROR(OBJ, OBJ_R_INVALID_OID_STRING);
+    CBB_cleanup(&cbb);
+    return NULL;
+  }
 
+  ASN1_OBJECT *ret = ASN1_OBJECT_create(get_nid ? get_nid() : NID_undef, buf,
+                                        len, short_name, long_name);
+  OPENSSL_free(buf);
+  return ret;
+}
+
+ASN1_OBJECT *OBJ_txt2obj(const char *s, int dont_search_names) {
   if (!dont_search_names) {
-    nid = OBJ_sn2nid(s);
+    int nid = OBJ_sn2nid(s);
     if (nid == NID_undef) {
       nid = OBJ_ln2nid(s);
     }
@@ -378,176 +420,52 @@ ASN1_OBJECT *OBJ_txt2obj(const char *s, int dont_search_names) {
     }
   }
 
-  /* Work out size of content octets */
-  contents_len = a2d_ASN1_OBJECT(NULL, 0, s, -1);
-  if (contents_len <= 0) {
-    return NULL;
-  }
-  /* Work out total size */
-  total_len = ASN1_object_size(0, contents_len, V_ASN1_OBJECT);
-
-  buf = OPENSSL_malloc(total_len);
-  if (buf == NULL) {
-    OPENSSL_PUT_ERROR(OBJ, ERR_R_MALLOC_FAILURE);
-    return NULL;
-  }
-
-  p = buf;
-  /* Write out tag+length */
-  ASN1_put_object(&p, 0, contents_len, V_ASN1_OBJECT, V_ASN1_UNIVERSAL);
-  /* Write out contents */
-  a2d_ASN1_OBJECT(p, contents_len, s, -1);
-
-  bufp = buf;
-  op = d2i_ASN1_OBJECT(NULL, &bufp, total_len);
-  OPENSSL_free(buf);
-
-  return op;
+  return create_object_with_text_oid(NULL, s, NULL, NULL);
 }
 
-int OBJ_obj2txt(char *out, int out_len, const ASN1_OBJECT *obj, int dont_return_name) {
-  int i, n = 0, len, nid, first, use_bn;
-  BIGNUM *bl;
-  unsigned long l;
-  const unsigned char *p;
-  char tbuf[DECIMAL_SIZE(i) + DECIMAL_SIZE(l) + 2];
+static int strlcpy_int(char *dst, const char *src, int dst_size) {
+  size_t ret = BUF_strlcpy(dst, src, dst_size < 0 ? 0 : (size_t)dst_size);
+  if (ret > INT_MAX) {
+    OPENSSL_PUT_ERROR(OBJ, ERR_R_OVERFLOW);
+    return -1;
+  }
+  return (int)ret;
+}
 
-  if (out && out_len > 0) {
-    out[0] = 0;
+int OBJ_obj2txt(char *out, int out_len, const ASN1_OBJECT *obj,
+                int always_return_oid) {
+  // Python depends on the empty OID successfully encoding as the empty
+  // string.
+  if (obj == NULL || obj->length == 0) {
+    return strlcpy_int(out, "", out_len);
   }
 
-  if (obj == NULL || obj->data == NULL) {
-    return 0;
-  }
-
-  if (!dont_return_name && (nid = OBJ_obj2nid(obj)) != NID_undef) {
-    const char *s;
-    s = OBJ_nid2ln(nid);
-    if (s == NULL) {
-      s = OBJ_nid2sn(nid);
-    }
-    if (s) {
-      if (out) {
-        BUF_strlcpy(out, s, out_len);
+  if (!always_return_oid) {
+    int nid = OBJ_obj2nid(obj);
+    if (nid != NID_undef) {
+      const char *name = OBJ_nid2ln(nid);
+      if (name == NULL) {
+        name = OBJ_nid2sn(nid);
       }
-      return strlen(s);
-    }
-  }
-
-  len = obj->length;
-  p = obj->data;
-
-  first = 1;
-  bl = NULL;
-
-  while (len > 0) {
-    l = 0;
-    use_bn = 0;
-    for (;;) {
-      unsigned char c = *p++;
-      len--;
-      if (len == 0 && (c & 0x80)) {
-        goto err;
+      if (name != NULL) {
+        return strlcpy_int(out, name, out_len);
       }
-      if (use_bn) {
-        if (!BN_add_word(bl, c & 0x7f)) {
-          goto err;
-        }
-      } else {
-        l |= c & 0x7f;
-      }
-      if (!(c & 0x80)) {
-        break;
-      }
-      if (!use_bn && (l > (ULONG_MAX >> 7L))) {
-        if (!bl && !(bl = BN_new())) {
-          goto err;
-        }
-        if (!BN_set_word(bl, l)) {
-          goto err;
-        }
-        use_bn = 1;
-      }
-      if (use_bn) {
-        if (!BN_lshift(bl, bl, 7)) {
-          goto err;
-        }
-      } else {
-        l <<= 7L;
-      }
-    }
-
-    if (first) {
-      first = 0;
-      if (l >= 80) {
-        i = 2;
-        if (use_bn) {
-          if (!BN_sub_word(bl, 80)) {
-            goto err;
-          }
-        } else {
-          l -= 80;
-        }
-      } else {
-        i = (int)(l / 40);
-        l -= (long)(i * 40);
-      }
-      if (out && out_len > 1) {
-        *out++ = i + '0';
-        *out = '0';
-        out_len--;
-      }
-      n++;
-    }
-
-    if (use_bn) {
-      char *bndec;
-      bndec = BN_bn2dec(bl);
-      if (!bndec) {
-        goto err;
-      }
-      i = strlen(bndec);
-      if (out) {
-        if (out_len > 1) {
-          *out++ = '.';
-          *out = 0;
-          out_len--;
-        }
-        BUF_strlcpy(out, bndec, out_len);
-        if (i > out_len) {
-          out += out_len;
-          out_len = 0;
-        } else {
-          out += i;
-          out_len -= i;
-        }
-      }
-      n++;
-      n += i;
-      OPENSSL_free(bndec);
-    } else {
-      BIO_snprintf(tbuf, sizeof(tbuf), ".%lu", l);
-      i = strlen(tbuf);
-      if (out && out_len > 0) {
-        BUF_strlcpy(out, tbuf, out_len);
-        if (i > out_len) {
-          out += out_len;
-          out_len = 0;
-        } else {
-          out += i;
-          out_len -= i;
-        }
-      }
-      n += i;
     }
   }
 
-  BN_free(bl);
-  return n;
+  CBS cbs;
+  CBS_init(&cbs, obj->data, obj->length);
+  char *txt = CBS_asn1_oid_to_text(&cbs);
+  if (txt == NULL) {
+    if (out_len > 0) {
+      out[0] = '\0';
+    }
+    return -1;
+  }
 
-err:
-  BN_free(bl);
-  return -1;
+  int ret = strlcpy_int(out, txt, out_len);
+  OPENSSL_free(txt);
+  return ret;
 }
 
 static uint32_t hash_nid(const ASN1_OBJECT *obj) {
@@ -567,7 +485,7 @@ static int cmp_data(const ASN1_OBJECT *a, const ASN1_OBJECT *b) {
   if (i) {
     return i;
   }
-  return memcmp(a->data, b->data, a->length);
+  return OPENSSL_memcmp(a->data, b->data, a->length);
 }
 
 static uint32_t hash_short_name(const ASN1_OBJECT *obj) {
@@ -586,8 +504,8 @@ static int cmp_long_name(const ASN1_OBJECT *a, const ASN1_OBJECT *b) {
   return strcmp(a->ln, b->ln);
 }
 
-/* obj_add_object inserts |obj| into the various global hashes for run-time
- * added objects. It returns one on success or zero otherwise. */
+// obj_add_object inserts |obj| into the various global hashes for run-time
+// added objects. It returns one on success or zero otherwise.
 static int obj_add_object(ASN1_OBJECT *obj) {
   int ok;
   ASN1_OBJECT *old_object;
@@ -603,10 +521,10 @@ static int obj_add_object(ASN1_OBJECT *obj) {
     global_added_by_long_name = lh_ASN1_OBJECT_new(hash_long_name, cmp_long_name);
   }
 
-  /* We don't pay attention to |old_object| (which contains any previous object
-   * that was evicted from the hashes) because we don't have a reference count
-   * on ASN1_OBJECT values. Also, we should never have duplicates nids and so
-   * should always have objects in |global_added_by_nid|. */
+  // We don't pay attention to |old_object| (which contains any previous object
+  // that was evicted from the hashes) because we don't have a reference count
+  // on ASN1_OBJECT values. Also, we should never have duplicates nids and so
+  // should always have objects in |global_added_by_nid|.
 
   ok = lh_ASN1_OBJECT_insert(global_added_by_nid, &old_object, obj);
   if (obj->length != 0 && obj->data != NULL) {
@@ -618,47 +536,19 @@ static int obj_add_object(ASN1_OBJECT *obj) {
   if (obj->ln != NULL) {
     ok &= lh_ASN1_OBJECT_insert(global_added_by_long_name, &old_object, obj);
   }
-  CRYPTO_STATIC_MUTEX_unlock(&global_added_lock);
+  CRYPTO_STATIC_MUTEX_unlock_write(&global_added_lock);
 
   return ok;
 }
 
 int OBJ_create(const char *oid, const char *short_name, const char *long_name) {
-  int ret = NID_undef;
-  ASN1_OBJECT *op = NULL;
-  unsigned char *buf = NULL;
-  int len;
-
-  len = a2d_ASN1_OBJECT(NULL, 0, oid, -1);
-  if (len <= 0) {
-    goto err;
+  ASN1_OBJECT *op =
+      create_object_with_text_oid(obj_next_nid, oid, short_name, long_name);
+  if (op == NULL ||
+      !obj_add_object(op)) {
+    return NID_undef;
   }
-
-  buf = OPENSSL_malloc(len);
-  if (buf == NULL) {
-    OPENSSL_PUT_ERROR(OBJ, ERR_R_MALLOC_FAILURE);
-    goto err;
-  }
-
-  len = a2d_ASN1_OBJECT(buf, len, oid, -1);
-  if (len == 0) {
-    goto err;
-  }
-
-  op = (ASN1_OBJECT *)ASN1_OBJECT_create(obj_next_nid(), buf, len, short_name,
-                                         long_name);
-  if (op == NULL) {
-    goto err;
-  }
-
-  if (obj_add_object(op)) {
-    ret = op->nid;
-  }
-  op = NULL;
-
-err:
-  ASN1_OBJECT_free(op);
-  OPENSSL_free(buf);
-
-  return ret;
+  return op->nid;
 }
+
+void OBJ_cleanup(void) {}

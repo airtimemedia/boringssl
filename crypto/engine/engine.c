@@ -23,6 +23,8 @@
 #include <openssl/rsa.h>
 #include <openssl/thread.h>
 
+#include "../internal.h"
+
 
 struct engine_st {
   RSA_METHOD *rsa_method;
@@ -35,20 +37,21 @@ ENGINE *ENGINE_new(void) {
     return NULL;
   }
 
-  memset(engine, 0, sizeof(ENGINE));
+  OPENSSL_memset(engine, 0, sizeof(ENGINE));
   return engine;
 }
 
-void ENGINE_free(ENGINE *engine) {
-  /* Methods are currently required to be static so are not unref'ed. */
+int ENGINE_free(ENGINE *engine) {
+  // Methods are currently required to be static so are not unref'ed.
   OPENSSL_free(engine);
+  return 1;
 }
 
-/* set_method takes a pointer to a method and its given size and sets
- * |*out_member| to point to it. This function might want to be extended in the
- * future to support making a copy of the method so that a stable ABI for
- * ENGINEs can be supported. But, for the moment, all *_METHODS must be
- * static. */
+// set_method takes a pointer to a method and its given size and sets
+// |*out_member| to point to it. This function might want to be extended in the
+// future to support making a copy of the method so that a stable ABI for
+// ENGINEs can be supported. But, for the moment, all *_METHODS must be
+// static.
 static int set_method(void **out_member, const void *method, size_t method_size,
                       size_t compiled_size) {
   const struct openssl_method_common_st *common = method;
@@ -93,4 +96,4 @@ void METHOD_unref(void *method_in) {
   assert(method->is_static);
 }
 
-OPENSSL_DECLARE_ERROR_REASON(ENGINE, OPERATION_NOT_SUPPORTED);
+OPENSSL_DECLARE_ERROR_REASON(ENGINE, OPERATION_NOT_SUPPORTED)

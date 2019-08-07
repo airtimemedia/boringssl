@@ -14,10 +14,10 @@ concerned, balance consistency within a module with the benefits of a
 given rule. Module-wide deviations on naming should be respected while
 integer and return value conventions take precedence over consistency.
 
-Some modules have seen few changes, so they still retain the original
-indentation style for now. When editing these, try to retain the
-original style. For Emacs, `doc/c-indentation.el` from OpenSSL may be
-helpful in this.
+Modules from OpenSSL's legacy ASN.1 and X.509 stack are retained for
+compatibility and left largely unmodified. To ease importing patches from
+upstream, they match OpenSSL's new indentation style. For Emacs,
+`doc/openssl-c-indent.el` from OpenSSL may be helpful in this.
 
 
 ## Language
@@ -27,12 +27,14 @@ Google style guide do not apply. Support for C99 features depends on
 our target platforms. Typically, Chromium's target MSVC is the most
 restrictive.
 
-Variable declarations in the middle of a function are allowed.
+Variable declarations in the middle of a function or inside a `for` loop are
+allowed and preferred where possible. Note that the common `goto err` cleanup
+pattern requires lifting some variable declarations.
 
-Comments should be `/* C-style */` for consistency.
+Comments should be `// C99-style` for consistency with C++.
 
-When declaration pointer types, `*` should be placed next to the variable
-name, not the type. So
+When declaring pointer types, `*` should be placed next to the variable name,
+not the type. So
 
     uint8_t *ptr;
 
@@ -43,9 +45,32 @@ not
 Rather than `malloc()` and `free()`, use the wrappers `OPENSSL_malloc()`
 and `OPENSSL_free()`. Use the standard C `assert()` function freely.
 
+Use the following wrappers, found in `crypto/internal.h` instead of the
+corresponding C standard library functions. They behave the same but avoid
+confusing undefined behavior.
+
+* `OPENSSL_memchr`
+* `OPENSSL_memcmp`
+* `OPENSSL_memcpy`
+* `OPENSSL_memmove`
+* `OPENSSL_memset`
+
 For new constants, prefer enums when the values are sequential and typed
 constants for flags. If adding values to an existing set of `#define`s,
 continue with `#define`.
+
+
+## libssl
+
+libssl was originally written in C but is being incrementally rewritten in
+C++11. As of writing, much of the style matches our C conventions rather than
+Google C++. Additionally, libssl on Linux currently may not depend on the C++
+runtime. See the C++ utilities in `ssl/internal.h` for replacements for
+problematic C++ constructs. The `util/check_imported_libraries.go` script may be
+used with a shared library build to check if a new construct is okay.
+
+If unsure, match surrounding code. Discrepancies between it and Google C++ style
+will be fixed over time.
 
 
 ## Formatting
@@ -157,7 +182,7 @@ For example,
     /* CBB_add_asn sets |*out_contents| to a |CBB| into which the contents of an
      * ASN.1 object can be written. The |tag| argument will be used as the tag for
      * the object. It returns one on success or zero on error. */
-    OPENSSL_EXPORT int CBB_add_asn1(CBB *cbb, CBB *out_contents, uint8_t tag);
+    OPENSSL_EXPORT int CBB_add_asn1(CBB *cbb, CBB *out_contents, unsigned tag);
 
 
 ## Documentation
@@ -173,25 +198,36 @@ behavior of the function. Pay special note to success/failure behaviors
 and caller obligations on object lifetimes. If this sacrifices
 conciseness, consider simplifying the function's behavior.
 
-    /* EVP_DigestVerifyUpdate appends |len| bytes from |data| to the data which
-     * will be verified by |EVP_DigestVerifyFinal|. It returns one on success and
-     * zero otherwise. */
+    // EVP_DigestVerifyUpdate appends |len| bytes from |data| to the data which
+    // will be verified by |EVP_DigestVerifyFinal|. It returns one on success and
+    // zero otherwise.
     OPENSSL_EXPORT int EVP_DigestVerifyUpdate(EVP_MD_CTX *ctx, const void *data,
                                               size_t len);
 
 Explicitly mention any surprising edge cases or deviations from common
 return value patterns in legacy functions.
 
-    /* RSA_private_encrypt encrypts |flen| bytes from |from| with the private key in
-     * |rsa| and writes the encrypted data to |to|. The |to| buffer must have at
-     * least |RSA_size| bytes of space. It returns the number of bytes written, or
-     * -1 on error. The |padding| argument must be one of the |RSA_*_PADDING|
-     * values. If in doubt, |RSA_PKCS1_PADDING| is the most common.
-     *
-     * WARNING: this function is dangerous because it breaks the usual return value
-     * convention. Use |RSA_sign_raw| instead. */
+    // RSA_private_encrypt encrypts |flen| bytes from |from| with the private key in
+    // |rsa| and writes the encrypted data to |to|. The |to| buffer must have at
+    // least |RSA_size| bytes of space. It returns the number of bytes written, or
+    // -1 on error. The |padding| argument must be one of the |RSA_*_PADDING|
+    // values. If in doubt, |RSA_PKCS1_PADDING| is the most common.
+    //
+    // WARNING: this function is dangerous because it breaks the usual return value
+    // convention. Use |RSA_sign_raw| instead.
     OPENSSL_EXPORT int RSA_private_encrypt(int flen, const uint8_t *from,
                                            uint8_t *to, RSA *rsa, int padding);
 
 Document private functions in their `internal.h` header or, if static,
 where defined.
+
+
+## Build logic
+
+BoringSSL is used by many projects with many different build tools.
+Reimplementing and maintaining build logic in each downstream build is
+cumbersome, so build logic should be avoided where possible. Platform-specific
+files should be excluded by wrapping the contents in `#ifdef`s, rather than
+computing platform-specific file lists. Generated source files such as perlasm
+and `err_data.c` may be used in the standalone CMake build but, for downstream
+builds, they should be pre-generated in `generate_build_files.py`.

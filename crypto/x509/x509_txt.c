@@ -54,19 +54,10 @@
  * copied and put under another distribution licence
  * [including the GNU Public Licence.] */
 
-#include <openssl/asn1.h>
-#include <openssl/buf.h>
-#include <openssl/cipher.h>
-#include <openssl/evp.h>
-#include <openssl/lhash.h>
-#include <openssl/mem.h>
-#include <openssl/obj.h>
 #include <openssl/x509.h>
 
 const char *X509_verify_cert_error_string(long n)
 {
-    static char buf[100];
-
     switch ((int)n) {
     case X509_V_OK:
         return ("ok");
@@ -199,8 +190,15 @@ const char *X509_verify_cert_error_string(long n)
     case X509_V_ERR_IP_ADDRESS_MISMATCH:
         return ("IP address mismatch");
 
+    case X509_V_ERR_INVALID_CALL:
+        return ("Invalid certificate verification context");
+    case X509_V_ERR_STORE_LOOKUP:
+        return ("Issuer certificate lookup error");
+
+    case X509_V_ERR_NAME_CONSTRAINTS_WITHOUT_SANS:
+        return "Issuer has name constraints but leaf has no SANs";
+
     default:
-        BIO_snprintf(buf, sizeof buf, "error number %ld", n);
-        return (buf);
+        return "unknown certificate verification error";
     }
 }

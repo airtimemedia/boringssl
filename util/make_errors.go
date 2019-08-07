@@ -10,7 +10,7 @@
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
-// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
+// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 package main
 
@@ -90,8 +90,27 @@ func makeErrors(reset bool) error {
 		return err
 	}
 
+	if filepath.Base(filepath.Dir(dirName)) == "fipsmodule" {
+		// Search the non-FIPS half of library for error codes as well.
+		extraPath := filepath.Join(topLevelPath, "crypto", lib+"_extra")
+		extraDir, err := os.Open(extraPath)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err == nil {
+			defer extraDir.Close()
+			extraFilenames, err := extraDir.Readdirnames(-1)
+			if err != nil {
+				return err
+			}
+			for _, extraFilename := range extraFilenames {
+				filenames = append(filenames, filepath.Join(extraPath, extraFilename))
+			}
+		}
+	}
+
 	for _, name := range filenames {
-		if !strings.HasSuffix(name, ".c") {
+		if !strings.HasSuffix(name, ".c") && !strings.HasSuffix(name, ".cc") {
 			continue
 		}
 
@@ -117,7 +136,12 @@ func makeErrors(reset bool) error {
 	if err := writeHeaderFile(newHeaderFile, headerFile, prefix, reasons); err != nil {
 		return err
 	}
-	os.Rename(headerPath+".tmp", headerPath)
+	// Windows forbids renaming an open file.
+	headerFile.Close()
+	newHeaderFile.Close()
+	if err := os.Rename(headerPath+".tmp", headerPath); err != nil {
+		return err
+	}
 
 	dataFile, err := os.OpenFile(dataPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
@@ -135,7 +159,7 @@ func findToplevel() (path string, err error) {
 	buildingPath := filepath.Join(path, "BUILDING.md")
 
 	_, err = os.Stat(buildingPath)
-	if err != nil && os.IsNotExist(err) {
+	for i := 0; i < 2 && err != nil && os.IsNotExist(err); i++ {
 		path = filepath.Join("..", path)
 		buildingPath = filepath.Join(path, "BUILDING.md")
 		_, err = os.Stat(buildingPath)

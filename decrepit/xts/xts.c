@@ -53,11 +53,11 @@
 #include <openssl/aes.h>
 #include <openssl/cipher.h>
 
-#include "../crypto/modes/internal.h"
+#include "../crypto/fipsmodule/modes/internal.h"
 
 
 typedef struct xts128_context {
-  void *key1, *key2;
+  AES_KEY *key1, *key2;
   block128_f block1, block2;
 } XTS128_CONTEXT;
 
@@ -73,30 +73,20 @@ static size_t CRYPTO_xts128_encrypt(const XTS128_CONTEXT *ctx,
 
   if (len < 16) return 0;
 
-  memcpy(tweak.c, iv, 16);
+  OPENSSL_memcpy(tweak.c, iv, 16);
 
   (*ctx->block2)(tweak.c, tweak.c, ctx->key2);
 
   if (!enc && (len % 16)) len -= 16;
 
   while (len >= 16) {
-#if STRICT_ALIGNMENT
-    memcpy(scratch.c, inp, 16);
+    OPENSSL_memcpy(scratch.c, inp, 16);
     scratch.u[0] ^= tweak.u[0];
     scratch.u[1] ^= tweak.u[1];
-#else
-    scratch.u[0] = ((uint64_t *)inp)[0] ^ tweak.u[0];
-    scratch.u[1] = ((uint64_t *)inp)[1] ^ tweak.u[1];
-#endif
     (*ctx->block1)(scratch.c, scratch.c, ctx->key1);
-#if STRICT_ALIGNMENT
     scratch.u[0] ^= tweak.u[0];
     scratch.u[1] ^= tweak.u[1];
-    memcpy(out, scratch.c, 16);
-#else
-    ((uint64_t *)out)[0] = scratch.u[0] ^= tweak.u[0];
-    ((uint64_t *)out)[1] = scratch.u[1] ^= tweak.u[1];
-#endif
+    OPENSSL_memcpy(out, scratch.c, 16);
     inp += 16;
     out += 16;
     len -= 16;
@@ -121,7 +111,7 @@ static size_t CRYPTO_xts128_encrypt(const XTS128_CONTEXT *ctx,
     (*ctx->block1)(scratch.c, scratch.c, ctx->key1);
     scratch.u[0] ^= tweak.u[0];
     scratch.u[1] ^= tweak.u[1];
-    memcpy(out - 16, scratch.c, 16);
+    OPENSSL_memcpy(out - 16, scratch.c, 16);
   } else {
     union {
       uint64_t u[2];
@@ -134,14 +124,9 @@ static size_t CRYPTO_xts128_encrypt(const XTS128_CONTEXT *ctx,
     carry = (unsigned int)(tweak.u[0] >> 63);
     tweak1.u[0] = (tweak.u[0] << 1) ^ res;
     tweak1.u[1] = (tweak.u[1] << 1) | carry;
-#if STRICT_ALIGNMENT
-    memcpy(scratch.c, inp, 16);
+    OPENSSL_memcpy(scratch.c, inp, 16);
     scratch.u[0] ^= tweak1.u[0];
     scratch.u[1] ^= tweak1.u[1];
-#else
-    scratch.u[0] = ((uint64_t *)inp)[0] ^ tweak1.u[0];
-    scratch.u[1] = ((uint64_t *)inp)[1] ^ tweak1.u[1];
-#endif
     (*ctx->block1)(scratch.c, scratch.c, ctx->key1);
     scratch.u[0] ^= tweak1.u[0];
     scratch.u[1] ^= tweak1.u[1];
@@ -154,14 +139,9 @@ static size_t CRYPTO_xts128_encrypt(const XTS128_CONTEXT *ctx,
     scratch.u[0] ^= tweak.u[0];
     scratch.u[1] ^= tweak.u[1];
     (*ctx->block1)(scratch.c, scratch.c, ctx->key1);
-#if STRICT_ALIGNMENT
     scratch.u[0] ^= tweak.u[0];
     scratch.u[1] ^= tweak.u[1];
-    memcpy(out, scratch.c, 16);
-#else
-    ((uint64_t *)out)[0] = scratch.u[0] ^ tweak.u[0];
-    ((uint64_t *)out)[1] = scratch.u[1] ^ tweak.u[1];
-#endif
+    OPENSSL_memcpy(out, scratch.c, 16);
   }
 
   return 1;
@@ -171,7 +151,7 @@ typedef struct {
   union {
     double align;
     AES_KEY ks;
-  } ks1, ks2;  /* AES key schedules to use */
+  } ks1, ks2;  // AES key schedules to use
   XTS128_CONTEXT xts;
 } EVP_AES_XTS_CTX;
 
@@ -183,24 +163,24 @@ static int aes_xts_init_key(EVP_CIPHER_CTX *ctx, const uint8_t *key,
   }
 
   if (key) {
-    /* key_len is two AES keys */
+    // key_len is two AES keys
     if (enc) {
       AES_set_encrypt_key(key, ctx->key_len * 4, &xctx->ks1.ks);
-      xctx->xts.block1 = (block128_f) AES_encrypt;
+      xctx->xts.block1 = AES_encrypt;
     } else {
       AES_set_decrypt_key(key, ctx->key_len * 4, &xctx->ks1.ks);
-      xctx->xts.block1 = (block128_f) AES_decrypt;
+      xctx->xts.block1 = AES_decrypt;
     }
 
     AES_set_encrypt_key(key + ctx->key_len / 2,
                         ctx->key_len * 4, &xctx->ks2.ks);
-    xctx->xts.block2 = (block128_f) AES_encrypt;
-    xctx->xts.key1 = &xctx->ks1;
+    xctx->xts.block2 = AES_encrypt;
+    xctx->xts.key1 = &xctx->ks1.ks;
   }
 
   if (iv) {
-    xctx->xts.key2 = &xctx->ks2;
-    memcpy(ctx->iv, iv, 16);
+    xctx->xts.key2 = &xctx->ks2.ks;
+    OPENSSL_memcpy(ctx->iv, iv, 16);
   }
 
   return 1;
@@ -226,22 +206,22 @@ static int aes_xts_ctrl(EVP_CIPHER_CTX *c, int type, int arg, void *ptr) {
     EVP_CIPHER_CTX *out = ptr;
     EVP_AES_XTS_CTX *xctx_out = out->cipher_data;
     if (xctx->xts.key1) {
-      if (xctx->xts.key1 != &xctx->ks1) {
+      if (xctx->xts.key1 != &xctx->ks1.ks) {
         return 0;
       }
-      xctx_out->xts.key1 = &xctx_out->ks1;
+      xctx_out->xts.key1 = &xctx_out->ks1.ks;
     }
     if (xctx->xts.key2) {
-      if (xctx->xts.key2 != &xctx->ks2) {
+      if (xctx->xts.key2 != &xctx->ks2.ks) {
         return 0;
       }
-      xctx_out->xts.key2 = &xctx_out->ks2;
+      xctx_out->xts.key2 = &xctx_out->ks2.ks;
     }
     return 1;
   } else if (type != EVP_CTRL_INIT) {
     return -1;
   }
-  /* key1 and key2 are used as an indicator both key and IV are set */
+  // key1 and key2 are used as an indicator both key and IV are set
   xctx->xts.key1 = NULL;
   xctx->xts.key2 = NULL;
   return 1;

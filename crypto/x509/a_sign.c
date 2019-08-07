@@ -62,7 +62,7 @@
 #include <openssl/obj.h>
 #include <openssl/x509.h>
 
-#include "../evp/internal.h"
+#include "internal.h"
 
 int ASN1_item_sign(const ASN1_ITEM *it, X509_ALGOR *algor1,
                    X509_ALGOR *algor2, ASN1_BIT_STRING *signature, void *asn,
@@ -83,20 +83,20 @@ int ASN1_item_sign_ctx(const ASN1_ITEM *it,
 {
     EVP_PKEY *pkey;
     unsigned char *buf_in = NULL, *buf_out = NULL;
-    size_t inl = 0, outl = 0, outll = 0;
+    size_t inl = 0, outl = 0;
 
     pkey = EVP_PKEY_CTX_get0_pkey(ctx->pctx);
 
     /* Write out the requested copies of the AlgorithmIdentifier. */
-    if (algor1 && !EVP_DigestSignAlgorithm(ctx, algor1)) {
+    if (algor1 && !x509_digest_sign_algorithm(ctx, algor1)) {
         goto err;
     }
-    if (algor2 && !EVP_DigestSignAlgorithm(ctx, algor2)) {
+    if (algor2 && !x509_digest_sign_algorithm(ctx, algor2)) {
         goto err;
     }
 
     inl = ASN1_item_i2d(asn, &buf_in, it);
-    outll = outl = EVP_PKEY_size(pkey);
+    outl = EVP_PKEY_size(pkey);
     buf_out = OPENSSL_malloc((unsigned int)outl);
     if ((buf_in == NULL) || (buf_out == NULL)) {
         outl = 0;
@@ -104,8 +104,7 @@ int ASN1_item_sign_ctx(const ASN1_ITEM *it,
         goto err;
     }
 
-    if (!EVP_DigestSignUpdate(ctx, buf_in, inl)
-        || !EVP_DigestSignFinal(ctx, buf_out, &outl)) {
+    if (!EVP_DigestSign(ctx, buf_out, &outl, buf_in, inl)) {
         outl = 0;
         OPENSSL_PUT_ERROR(X509, ERR_R_EVP_LIB);
         goto err;
@@ -123,13 +122,7 @@ int ASN1_item_sign_ctx(const ASN1_ITEM *it,
     signature->flags |= ASN1_STRING_FLAG_BITS_LEFT;
  err:
     EVP_MD_CTX_cleanup(ctx);
-    if (buf_in != NULL) {
-        OPENSSL_cleanse((char *)buf_in, (unsigned int)inl);
-        OPENSSL_free(buf_in);
-    }
-    if (buf_out != NULL) {
-        OPENSSL_cleanse((char *)buf_out, outll);
-        OPENSSL_free(buf_out);
-    }
+    OPENSSL_free(buf_in);
+    OPENSSL_free(buf_out);
     return (outl);
 }

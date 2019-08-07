@@ -18,15 +18,10 @@
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 
-#include "../crypto/test/scoped_types.h"
 #include "internal.h"
 
 
 static const struct argument kArguments[] = {
-    {
-     "-nprimes", kOptionalArgument,
-     "The number of primes to generate (default: 2)",
-    },
     {
      "-bits", kOptionalArgument,
      "The number of bits in the modulus (default: 2048)",
@@ -44,19 +39,18 @@ bool GenerateRSAKey(const std::vector<std::string> &args) {
     return false;
   }
 
-  unsigned bits, nprimes = 0;
-  if (!GetUnsigned(&bits, "-bits", 2048, args_map) ||
-      !GetUnsigned(&nprimes, "-nprimes", 2, args_map)) {
+  unsigned bits;
+  if (!GetUnsigned(&bits, "-bits", 2048, args_map)) {
     PrintUsage(kArguments);
     return false;
   }
 
-  ScopedRSA rsa(RSA_new());
-  ScopedBIGNUM e(BN_new());
-  ScopedBIO bio(BIO_new_fp(stdout, BIO_NOCLOSE));
+  bssl::UniquePtr<RSA> rsa(RSA_new());
+  bssl::UniquePtr<BIGNUM> e(BN_new());
+  bssl::UniquePtr<BIO> bio(BIO_new_fp(stdout, BIO_NOCLOSE));
 
   if (!BN_set_word(e.get(), RSA_F4) ||
-      !RSA_generate_multi_prime_key(rsa.get(), bits, nprimes, e.get(), NULL) ||
+      !RSA_generate_key_ex(rsa.get(), bits, e.get(), NULL) ||
       !PEM_write_bio_RSAPrivateKey(bio.get(), rsa.get(), NULL /* cipher */,
                                    NULL /* key */, 0 /* key len */,
                                    NULL /* password callback */,

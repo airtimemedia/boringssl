@@ -65,6 +65,9 @@
 #include <openssl/obj.h>
 #include <openssl/x509v3.h>
 
+#include "../internal.h"
+
+
 static void *v2i_NAME_CONSTRAINTS(const X509V3_EXT_METHOD *method,
                                   X509V3_CTX *ctx,
                                   STACK_OF(CONF_VALUE) *nval);
@@ -211,17 +214,18 @@ static int print_nc_ipadd(BIO *bp, ASN1_OCTET_STRING *ip)
     return 1;
 }
 
-/*
- * Check a certificate conforms to a specified set of constraints. Return
- * values: X509_V_OK: All constraints obeyed.
- * X509_V_ERR_PERMITTED_VIOLATION: Permitted subtree violation.
- * X509_V_ERR_EXCLUDED_VIOLATION: Excluded subtree violation.
- * X509_V_ERR_SUBTREE_MINMAX: Min or max values present and matching type.
- * X509_V_ERR_UNSUPPORTED_CONSTRAINT_TYPE: Unsupported constraint type.
- * X509_V_ERR_UNSUPPORTED_CONSTRAINT_SYNTAX: bad unsupported constraint
- * syntax.  X509_V_ERR_UNSUPPORTED_NAME_SYNTAX: bad or unsupported syntax of
- * name
- *
+/*-
+ * Check a certificate conforms to a specified set of constraints.
+ * Return values:
+ *   X509_V_OK: All constraints obeyed.
+ *   X509_V_ERR_PERMITTED_VIOLATION: Permitted subtree violation.
+ *   X509_V_ERR_EXCLUDED_VIOLATION: Excluded subtree violation.
+ *   X509_V_ERR_SUBTREE_MINMAX: Min or max values present and matching type.
+ *   X509_V_ERR_UNSPECIFIED: Unspecified error.
+ *   X509_V_ERR_UNSUPPORTED_CONSTRAINT_TYPE: Unsupported constraint type.
+ *   X509_V_ERR_UNSUPPORTED_CONSTRAINT_SYNTAX: Bad or unsupported constraint
+ *     syntax.
+ *   X509_V_ERR_UNSUPPORTED_NAME_SYNTAX: Bad or unsupported syntax of name.
  */
 
 int NAME_CONSTRAINTS_check(X509 *x, NAME_CONSTRAINTS *nc)
@@ -231,6 +235,21 @@ int NAME_CONSTRAINTS_check(X509 *x, NAME_CONSTRAINTS *nc)
     X509_NAME *nm;
 
     nm = X509_get_subject_name(x);
+
+    /* Guard against certificates with an excessive number of names or
+     * constraints causing a computationally expensive name constraints
+     * check. */
+    size_t name_count =
+        X509_NAME_entry_count(nm) + sk_GENERAL_NAME_num(x->altname);
+    size_t constraint_count = sk_GENERAL_SUBTREE_num(nc->permittedSubtrees) +
+                              sk_GENERAL_SUBTREE_num(nc->excludedSubtrees);
+    size_t check_count = constraint_count * name_count;
+    if (name_count < (size_t)X509_NAME_entry_count(nm) ||
+        constraint_count < sk_GENERAL_SUBTREE_num(nc->permittedSubtrees) ||
+        (constraint_count && check_count / constraint_count != name_count) ||
+        check_count > 1 << 20) {
+      return X509_V_ERR_UNSPECIFIED;
+    }
 
     if (X509_NAME_entry_count(nm) > 0) {
         GENERAL_NAME gntmp;
@@ -365,7 +384,7 @@ static int nc_dn(X509_NAME *nm, X509_NAME *base)
         return X509_V_ERR_OUT_OF_MEM;
     if (base->canon_enclen > nm->canon_enclen)
         return X509_V_ERR_PERMITTED_VIOLATION;
-    if (memcmp(base->canon_enc, nm->canon_enc, base->canon_enclen))
+    if (OPENSSL_memcmp(base->canon_enc, nm->canon_enc, base->canon_enclen))
         return X509_V_ERR_PERMITTED_VIOLATION;
     return X509_V_OK;
 }

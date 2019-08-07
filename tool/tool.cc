@@ -26,21 +26,13 @@
 #include <libgen.h>
 #endif
 
+#include "internal.h"
 
-bool Ciphers(const std::vector<std::string> &args);
-bool Client(const std::vector<std::string> &args);
-bool DoPKCS12(const std::vector<std::string> &args);
-bool GenerateEd25519Key(const std::vector<std::string> &args);
-bool GenerateRSAKey(const std::vector<std::string> &args);
-bool MD5Sum(const std::vector<std::string> &args);
-bool Rand(const std::vector<std::string> &args);
-bool SHA1Sum(const std::vector<std::string> &args);
-bool SHA224Sum(const std::vector<std::string> &args);
-bool SHA256Sum(const std::vector<std::string> &args);
-bool SHA384Sum(const std::vector<std::string> &args);
-bool SHA512Sum(const std::vector<std::string> &args);
-bool Server(const std::vector<std::string> &args);
-bool Speed(const std::vector<std::string> &args);
+
+static bool IsFIPS(const std::vector<std::string> &args) {
+  printf("%d\n", FIPS_mode());
+  return true;
+}
 
 typedef bool (*tool_func_t)(const std::vector<std::string> &args);
 
@@ -52,6 +44,7 @@ struct Tool {
 static const Tool kTools[] = {
   { "ciphers", Ciphers },
   { "client", Client },
+  { "isfips", IsFIPS },
   { "generate-ed25519", GenerateEd25519Key },
   { "genrsa", GenerateRSAKey },
   { "md5sum", MD5Sum },
@@ -65,6 +58,7 @@ static const Tool kTools[] = {
   { "sha256sum", SHA256Sum },
   { "sha384sum", SHA384Sum },
   { "sha512sum", SHA512Sum },
+  { "sign", Sign },
   { "speed", Speed },
   { "", nullptr },
 };
@@ -83,7 +77,7 @@ static void usage(const char *name) {
   }
 }
 
-tool_func_t FindTool(const std::string &name) {
+static tool_func_t FindTool(const std::string &name) {
   for (size_t i = 0;; i++) {
     const Tool &tool = kTools[i];
     if (tool.func == nullptr || name == tool.name) {
@@ -135,5 +129,10 @@ int main(int argc, char **argv) {
     args.push_back(argv[i]);
   }
 
-  return !tool(args);
+  if (!tool(args)) {
+    ERR_print_errors_fp(stderr);
+    return 1;
+  }
+
+  return 0;
 }
