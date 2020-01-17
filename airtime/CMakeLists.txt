@@ -3,7 +3,7 @@
 # Allow reading location of libraries
 cmake_policy(SET CMP0026 OLD)
 
-set(at_boringssl_include_dir ${CMAKE_CURRENT_SOURCE_DIR}/src/include CACHE INTERNAL "")
+set(at_boringssl_include_dir ${CMAKE_CURRENT_SOURCE_DIR}/../include CACHE INTERNAL "")
 
 set(ORIG_CMAKE_SYSTEM_PROCESSOR ${CMAKE_SYSTEM_PROCESSOR})
 
@@ -35,7 +35,7 @@ endif()
 # Disable warnings introduced in Xcode 7.3
 add_compile_options(-Wno-logical-not-parentheses)
 
-add_subdirectory(src)
+add_subdirectory(..)
 set(CMAKE_SYSTEM_PROCESSOR ${ORIG_CMAKE_SYSTEM_PROCESSOR})
 
 get_property(boringssl_ssl_lib TARGET ssl PROPERTY LOCATION)
