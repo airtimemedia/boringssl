@@ -35,7 +35,7 @@ endif()
 # Disable warnings introduced in Xcode 7.3
 add_compile_options(-Wno-logical-not-parentheses)
 
-add_subdirectory(..${CMAKE_CURRENT_BINARY_DIR}/boringssl)
+add_subdirectory(.. ${CMAKE_CURRENT_BINARY_DIR}/boringssl)
 set(CMAKE_SYSTEM_PROCESSOR ${ORIG_CMAKE_SYSTEM_PROCESSOR})
 
 # CAR-896: disable warning in aes_test program:
