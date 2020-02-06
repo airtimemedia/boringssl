@@ -3,13 +3,6 @@ include_directories(../include)
 add_library(
   decrepit
 
-  # TODO(Art): not sure if it is sill necessary
-  ## airtime: start
-  ## DEVOPS-1090: libdecrepit.a is not created by Xcode generator
-  ## unless it has a real source file (not just referencing TARGET_OBJECTS)
-  ## See https://gitlab.kitware.com/cmake/cmake/issues/16524
-  #airtime_dummy_file.c
-  ## airtime: end
   bio/base64_bio.c
   blowfish/blowfish.c
   cast/cast.c
