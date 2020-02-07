@@ -19,16 +19,23 @@ elseif (IOS)
   # for iOS since clang can't compile them. See
   # https://github.com/airtimemedia/boringssl/commit/19a96365f5ecb168cd0826cff89948335373a2e6
   set(CMAKE_SYSTEM_PROCESSOR "arm")
+elseif (TVOS)
+  # NOTE(tom): this is a hack to handle the simulator case
+  # it works because the setting the processor to arm only causes boringssl to
+  # add architecture-specific assembly files, but we exclude those when building
+  # for iOS since clang can't compile them. See
+  # https://github.com/airtimemedia/boringssl/commit/19a96365f5ecb168cd0826cff89948335373a2e6
+  set(CMAKE_SYSTEM_PROCESSOR "arm")
 else()
   set(CMAKE_SYSTEM_PROCESSOR ${at_target_arch})
 endif()
 
-if (IOS OR ANDROID)
+if (TVOS OR IOS OR ANDROID)
   set(BORINGSSL_NO_ASM YES)
   set(OPENSSL_NO_ASM YES)
 endif()
 
-if (IOS)
+if (TVOS OR IOS)
   set(BORINGSSL_DEVELOPMENT_TEAM "8TJ4VFPP54")
 endif()
 
