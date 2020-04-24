@@ -51,6 +51,10 @@ get_property(boringssl_crypto_lib TARGET crypto PROPERTY LOCATION)
 get_filename_component(boringssl_crypto_dir ${boringssl_crypto_lib} DIRECTORY)
 set(at_boringssl_crypto_dir ${boringssl_crypto_dir} CACHE INTERNAL "")
 
+get_property(boringssl_decrepit_lib TARGET decrepit PROPERTY LOCATION)
+get_filename_component(boringssl_decrepit_dir ${boringssl_decrepit_lib} DIRECTORY)
+set(at_boringssl_decrepit_dir ${boringssl_decrepit_dir} CACHE INTERNAL "")
+
 # Workaround for Xcode archive build not finding these libraries
 # See https://stackoverflow.com/q/33020245/2442139
 # and https://stackoverflow.com/a/30328846/2442139
@@ -62,6 +66,10 @@ if(CMAKE_GENERATOR MATCHES Xcode)
   set_target_properties(ssl PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${at_boringssl_ssl_dir}
     ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${at_boringssl_ssl_dir}
+  )
+  set_target_properties(decrepit PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${at_boringssl_decrepit_dir}
+    ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${at_boringssl_decrepit_dir}
   )
 endif()
 
