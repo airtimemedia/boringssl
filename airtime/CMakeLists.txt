@@ -67,5 +67,6 @@ endif()
 
 add_library(at_boringssl INTERFACE)
 target_include_directories(at_boringssl INTERFACE ${at_boringssl_include_dir})
-target_link_libraries(at_boringssl INTERFACE ssl crypto)
-add_dependencies(at_boringssl ssl crypto)  # CAR-1049: Add explicit dependency
+target_link_libraries(at_boringssl INTERFACE ssl crypto decrepit)
+add_dependencies(at_boringssl ssl crypto decrepit)  # CAR-1049: Add explicit dependency
+
