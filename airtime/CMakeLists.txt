@@ -33,7 +33,7 @@ if (IOS)
 endif()
 
 # Disable warnings introduced in Xcode 7.3
-add_compile_options(-Wno-logical-not-parentheses)
+add_compile_options(-Wno-logical-not-parentheses -Wno-implicit-fallthrough)
 
 add_subdirectory(.. ${CMAKE_CURRENT_BINARY_DIR}/boringssl)
 set(CMAKE_SYSTEM_PROCESSOR ${ORIG_CMAKE_SYSTEM_PROCESSOR})
