@@ -581,12 +581,16 @@ if(USE_CUSTOM_LIBCXX)
 endif()
 
 # airtime: start
-## Add minimal googletest targets. The provided one has many side-effects, and
-## googletest has a very straightforward build.
-#add_library(boringssl_gtest third_party/googletest/src/gtest-all.cc)
-#target_include_directories(boringssl_gtest PRIVATE third_party/googletest)
-#
-#include_directories(third_party/googletest/include)
+#TODO(igork) - CAR-1705 - The code below was commented out. Temporarily uncommented to make Android build work.
+#To be revisited for an actual fix after all WebRTC sources are integrated into Android build.
+
+# Add minimal googletest targets. The provided one has many side-effects, and
+# googletest has a very straightforward build.
+add_library(boringssl_gtest third_party/googletest/src/gtest-all.cc)
+target_include_directories(boringssl_gtest PRIVATE third_party/googletest)
+
+include_directories(third_party/googletest/include)
+# end TODO(igork)
 # airtime: end
 
 # Declare a dummy target to build all unit tests. Test targets should inject
