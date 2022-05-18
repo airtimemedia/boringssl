@@ -129,7 +129,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CLANG)
   endif()
 
   if(CLANG OR NOT "7.0.0" VERSION_GREATER CMAKE_C_COMPILER_VERSION)
-    set(C_CXX_FLAGS "${C_CXX_FLAGS} -Wimplicit-fallthrough")
+    set(C_CXX_FLAGS "${C_CXX_FLAGS} -Wno-implicit-fallthrough")
   endif()
 
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${C_CXX_FLAGS} -Wmissing-prototypes -Wold-style-definition -Wstrict-prototypes")
