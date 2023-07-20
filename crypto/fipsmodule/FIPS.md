@@ -10,29 +10,24 @@ BoringCrypto has undergone the following validations:
 
 1. 2017-06-15: certificate [#2964](https://csrc.nist.gov/Projects/Cryptographic-Module-Validation-Program/Certificate/2964), [security policy](/crypto/fipsmodule/policydocs/BoringCrypto-Security-Policy-20170615.docx) (in docx format).
 1. 2018-07-30: certificate [#3318](https://csrc.nist.gov/Projects/Cryptographic-Module-Validation-Program/Certificate/3318), [security policy](/crypto/fipsmodule/policydocs/BoringCrypto-Security-Policy-20180730.docx) (in docx format).
+1. 2019-08-08: certificate [#3678](https://csrc.nist.gov/Projects/Cryptographic-Module-Validation-Program/Certificate/3678), [security policy](/crypto/fipsmodule/policydocs/BoringCrypto-Security-Policy-20190808.docx) (in docx format).
+1. 2019-10-20: certificate [#3753](https://csrc.nist.gov/Projects/Cryptographic-Module-Validation-Program/Certificate/3753), [security policy](/crypto/fipsmodule/policydocs/BoringCrypto-Android-Security-Policy-20191020.docx) (in docx format).
+1. 2021-01-28: certificate [#4156](https://csrc.nist.gov/Projects/Cryptographic-Module-Validation-Program/Certificate/4156), [security policy](/crypto/fipsmodule/policydocs/BoringCrypto-Android-Security-Policy-20210319.docx) (in docx format).
+1. 2021-04-29: certificate [#4407](https://csrc.nist.gov/projects/cryptographic-module-validation-program/certificate/4407).
 
-## Running CAVP tests
+## Running ACVP tests
 
-CAVP results are calculated by `util/fipstools/cavp`, but that binary is almost always run by `util/fipstools/run_cavp.go`. The latter knows the set of tests to be processed and the flags needed to configure `cavp` for each one. It must be run from the top of a CAVP directory and needs the following options:
+See `util/fipstools/acvp/ACVP.md` for details of how ACVP testing is done.
 
-1. `-oracle-bin`: points to the location of `util/fipstools/cavp`
-2. `-no-fax`: this is needed to suppress checking of the FAX files, which are only included in sample sets.
+## Breaking known-answer and continuous tests
 
-## Breaking power-on and continuous tests
+Each known-answer test (KAT) uses a unique, random input value. `util/fipstools/break-kat.go` contains a listing of those values and can be used to corrupt a given test in a binary. Since changes to the KAT input values will invalidate the integrity test, `BORINGSSL_FIPS_BREAK_TESTS` can be defined in `fips_break_tests.h` to disable it for the purposes of testing.
 
-In order to demonstrate failures of the various FIPS 140 tests, BoringSSL can be built in ways that will trigger such failures. This is controlled by passing `-DFIPS_BREAK_TEST=`(test to break) to CMake, where the following tests can be specified:
+Some FIPS tests cannot be broken by replacing a known string in the binary. For those, when `BORINGSSL_FIPS_BREAK_TESTS` is defined, the environment variable `BORINGSSL_FIPS_BREAK_TEST` can be set to one of a number of values in order to break the corresponding test:
 
-1. AES\_CBC
-1. AES\_GCM
-1. DES
-1. SHA\_1
-1. SHA\_256
-1. SHA\_512
-1. RSA\_SIG
-1. ECDSA\_SIG
-1. DRBG
-1. RSA\_PWCT
-1. ECDSA\_PWCT
+1. `RSA_PWCT`
+1. `ECDSA_PWCT`
+1. `CRNG`
 
 ## Breaking the integrity test
 
@@ -45,6 +40,10 @@ FIPS 140-2 requires that one of its PRNGs be used (which they call DRBGs). In Bo
 The DRBG state is kept in a thread-local structure and is seeded from one of the following entropy sources in preference order: RDRAND (on Intel chips), `getrandom`, and `/dev/urandom`. In the case of `/dev/urandom`, in order to ensure that the system has a minimum level of entropy, BoringCrypto polls the kernel until the estimated entropy is at least 256 bits. This is a poor man's version of `getrandom` and we strongly recommend using a kernel recent enough to support the real thing.
 
 In FIPS mode, each of those entropy sources is subject to a 10× overread. That is, when *n* bytes of entropy are needed, *10n* bytes will be read from the entropy source and XORed down to *n* bytes. Reads from the entropy source are also processed in blocks of 16 bytes and if two consecutive chunks are equal the process will abort.
+
+In the case that the seed is taken from RDRAND, getrandom will also be queried with `GRND_NONBLOCK` to attempt to obtain additional entropy from the operating system. If available, that extra entropy will be XORed into the whitened seed.
+
+On Android, only `getrandom` is supported and, when seeding for the first time, the system property `ro.boringcrypto.hwrand` is queried. If set to `true` then `getrandom` will be called with the `GRND_RANDOM` flag. Only entropy draws destined for DRBG seeds are affected by this. We are not suggesting that there is any security advantage at all to doing this, and thus recommend that Android vendors do _not_ set this flag.
 
 The CTR-DRBG is reseeded every 4096 calls to `RAND_bytes`. Thus the process will randomly crash about every 2¹³⁵ calls.
 

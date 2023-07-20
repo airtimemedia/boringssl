@@ -92,6 +92,7 @@ $code=<<___;
 .align	16
 bn_mul_mont:
 .cfi_startproc
+	_CET_ENDBR
 	mov	${num}d,${num}d
 	mov	%rsp,%rax
 .cfi_def_cfa_register	%rax
@@ -1578,4 +1579,4 @@ ___
 }
 
 print $code;
-close STDOUT or die "error closing STDOUT";
+close STDOUT or die "error closing STDOUT: $!";
