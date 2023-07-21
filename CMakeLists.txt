@@ -667,7 +667,10 @@ file(STRINGS util/go_tests.txt GO_TESTS)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
              util/go_tests.txt)
 
-add_custom_target(
+# airtime: start
+if (NOT ANDROID)
+  add_custom_target(
+# airtime: end
     run_tests
     COMMAND ${GO_EXECUTABLE} test ${GO_TESTS}
     COMMAND ${GO_EXECUTABLE} run util/all_tests.go -build-dir
@@ -678,6 +681,7 @@ add_custom_target(
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     DEPENDS all_tests bssl_shim handshaker fips_specific_tests_if_any
     USES_TERMINAL)
+endif()  # airtime
 
 install_if_enabled(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
