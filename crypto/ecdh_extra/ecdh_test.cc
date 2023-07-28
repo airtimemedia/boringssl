@@ -35,24 +35,23 @@
 #include "../test/wycheproof_util.h"
 
 
-static bssl::UniquePtr<EC_GROUP> GetCurve(FileTest *t, const char *key) {
+static const EC_GROUP *GetCurve(FileTest *t, const char *key) {
   std::string curve_name;
   if (!t->GetAttribute(&curve_name, key)) {
     return nullptr;
   }
 
   if (curve_name == "P-224") {
-    return bssl::UniquePtr<EC_GROUP>(EC_GROUP_new_by_curve_name(NID_secp224r1));
+    return EC_group_p224();
   }
   if (curve_name == "P-256") {
-    return bssl::UniquePtr<EC_GROUP>(EC_GROUP_new_by_curve_name(
-        NID_X9_62_prime256v1));
+    return EC_group_p256();
   }
   if (curve_name == "P-384") {
-    return bssl::UniquePtr<EC_GROUP>(EC_GROUP_new_by_curve_name(NID_secp384r1));
+    return EC_group_p384();
   }
   if (curve_name == "P-521") {
-    return bssl::UniquePtr<EC_GROUP>(EC_GROUP_new_by_curve_name(NID_secp521r1));
+    return EC_group_p521();
   }
 
   t->PrintLine("Unknown curve '%s'", curve_name.c_str());
@@ -70,7 +69,7 @@ static bssl::UniquePtr<BIGNUM> GetBIGNUM(FileTest *t, const char *key) {
 
 TEST(ECDHTest, TestVectors) {
   FileTestGTest("crypto/ecdh_extra/ecdh_tests.txt", [](FileTest *t) {
-    bssl::UniquePtr<EC_GROUP> group = GetCurve(t, "Curve");
+    const EC_GROUP *group = GetCurve(t, "Curve");
     ASSERT_TRUE(group);
     bssl::UniquePtr<BIGNUM> priv_key = GetBIGNUM(t, "Private");
     ASSERT_TRUE(priv_key);
@@ -87,16 +86,16 @@ TEST(ECDHTest, TestVectors) {
 
     bssl::UniquePtr<EC_KEY> key(EC_KEY_new());
     ASSERT_TRUE(key);
-    bssl::UniquePtr<EC_POINT> pub_key(EC_POINT_new(group.get()));
+    bssl::UniquePtr<EC_POINT> pub_key(EC_POINT_new(group));
     ASSERT_TRUE(pub_key);
-    bssl::UniquePtr<EC_POINT> peer_pub_key(EC_POINT_new(group.get()));
+    bssl::UniquePtr<EC_POINT> peer_pub_key(EC_POINT_new(group));
     ASSERT_TRUE(peer_pub_key);
-    ASSERT_TRUE(EC_KEY_set_group(key.get(), group.get()));
+    ASSERT_TRUE(EC_KEY_set_group(key.get(), group));
     ASSERT_TRUE(EC_KEY_set_private_key(key.get(), priv_key.get()));
-    ASSERT_TRUE(EC_POINT_set_affine_coordinates_GFp(group.get(), pub_key.get(),
+    ASSERT_TRUE(EC_POINT_set_affine_coordinates_GFp(group, pub_key.get(),
                                                     x.get(), y.get(), nullptr));
     ASSERT_TRUE(EC_POINT_set_affine_coordinates_GFp(
-        group.get(), peer_pub_key.get(), peer_x.get(), peer_y.get(), nullptr));
+        group, peer_pub_key.get(), peer_x.get(), peer_y.get(), nullptr));
     ASSERT_TRUE(EC_KEY_set_public_key(key.get(), pub_key.get()));
     ASSERT_TRUE(EC_KEY_check_key(key.get()));
 
@@ -130,7 +129,7 @@ TEST(ECDHTest, TestVectors) {
 static void RunWycheproofTest(FileTest *t) {
   t->IgnoreInstruction("encoding");
 
-  bssl::UniquePtr<EC_GROUP> group = GetWycheproofCurve(t, "curve", true);
+  const EC_GROUP *group = GetWycheproofCurve(t, "curve", true);
   ASSERT_TRUE(group);
   bssl::UniquePtr<BIGNUM> priv_key = GetWycheproofBIGNUM(t, "private", false);
   ASSERT_TRUE(priv_key);
@@ -140,22 +139,16 @@ static void RunWycheproofTest(FileTest *t) {
   ASSERT_TRUE(GetWycheproofResult(t, &result));
   std::vector<uint8_t> shared;
   ASSERT_TRUE(t->GetBytes(&shared, "shared"));
+  // BoringSSL supports compressed coordinates.
+  bool is_valid = result.IsValid({"CompressedPoint"});
 
   // Wycheproof stores the peer key in an SPKI to mimic a Java API mistake.
   // This is non-standard and error-prone.
   CBS cbs;
   CBS_init(&cbs, peer_spki.data(), peer_spki.size());
   bssl::UniquePtr<EVP_PKEY> peer_evp(EVP_parse_public_key(&cbs));
-  if (!peer_evp) {
-    // Note some of Wycheproof's "acceptable" entries are unsupported by
-    // BoringSSL because they test explicit curves (forbidden by RFC 5480),
-    // while others are supported because they used compressed coordinates. If
-    // the peer key fails to parse, we consider it to match "acceptable", but if
-    // the resulting shared secret matches below, it too matches "acceptable".
-    //
-    // TODO(davidben): Use the flags field to disambiguate these. Possibly
-    // first get the Wycheproof folks to use flags more consistently.
-    EXPECT_NE(WycheproofResult::kValid, result);
+  if (!peer_evp || CBS_len(&cbs) != 0) {
+    EXPECT_FALSE(is_valid);
     return;
   }
   EC_KEY *peer_ec = EVP_PKEY_get0_EC_KEY(peer_evp.get());
@@ -163,18 +156,18 @@ static void RunWycheproofTest(FileTest *t) {
 
   bssl::UniquePtr<EC_KEY> key(EC_KEY_new());
   ASSERT_TRUE(key);
-  ASSERT_TRUE(EC_KEY_set_group(key.get(), group.get()));
+  ASSERT_TRUE(EC_KEY_set_group(key.get(), group));
   ASSERT_TRUE(EC_KEY_set_private_key(key.get(), priv_key.get()));
 
-  std::vector<uint8_t> actual((EC_GROUP_get_degree(group.get()) + 7) / 8);
+  std::vector<uint8_t> actual((EC_GROUP_get_degree(group) + 7) / 8);
   int ret =
       ECDH_compute_key(actual.data(), actual.size(),
                        EC_KEY_get0_public_key(peer_ec), key.get(), nullptr);
-  if (result == WycheproofResult::kInvalid) {
-    EXPECT_EQ(-1, ret);
-  } else {
+  if (is_valid) {
     EXPECT_EQ(static_cast<int>(actual.size()), ret);
     EXPECT_EQ(Bytes(shared), Bytes(actual.data(), static_cast<size_t>(ret)));
+  } else {
+    EXPECT_EQ(-1, ret);
   }
 }
 
@@ -280,6 +273,7 @@ TEST(ECDHTest, GroupMismatch) {
       }
 
       bssl::UniquePtr<EC_KEY> key(EC_KEY_new());
+      ASSERT_TRUE(key);
       ASSERT_TRUE(EC_KEY_set_group(key.get(), a.get()));
       ASSERT_TRUE(EC_KEY_generate_key(key.get()));
 
