@@ -12,6 +12,8 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+//go:build ignore
+
 package main
 
 import (
@@ -19,7 +21,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"sort"
@@ -347,6 +348,11 @@ func readObjects(numPath, objectsPath string) (*objects, error) {
 		return nil, err
 	}
 
+	// The kNIDsIn*Order constants assume each NID fits in a uint16_t.
+	if len(objs.byNID) > 0xffff {
+		return nil, errors.New("too many NIDs allocated")
+	}
+
 	return objs, nil
 }
 
@@ -513,24 +519,11 @@ extern "C" {
 		return err
 	}
 
-	return ioutil.WriteFile(path, []byte(formatted), 0666)
+	return os.WriteFile(path, []byte(formatted), 0666)
 }
-
-// TODO(davidben): Replace this with sort.Slice once Go 1.8 is sufficiently
-// common.
-type nidSorter struct {
-	nids []int
-	objs *objects
-	cmp  func(a, b object) bool
-}
-
-func (a nidSorter) obj(i int) object   { return a.objs.byNID[a.nids[i]] }
-func (a nidSorter) Len() int           { return len(a.nids) }
-func (a nidSorter) Swap(i, j int)      { a.nids[i], a.nids[j] = a.nids[j], a.nids[i] }
-func (a nidSorter) Less(i, j int) bool { return a.cmp(a.obj(i), a.obj(j)) }
 
 func sortNIDs(nids []int, objs *objects, cmp func(a, b object) bool) {
-	sort.Sort(&nidSorter{nids, objs, cmp})
+	sort.Slice(nids, func(i, j int) bool { return cmp(objs.byNID[nids[i]], objs.byNID[nids[j]]) })
 }
 
 func writeData(path string, objs *objects) error {
@@ -645,7 +638,7 @@ func writeData(path string, objs *objects) error {
 	}
 	sortNIDs(nids, objs, func(a, b object) bool { return a.shortName < b.shortName })
 
-	fmt.Fprintf(&b, "\nstatic const unsigned kNIDsInShortNameOrder[] = {\n")
+	fmt.Fprintf(&b, "\nstatic const uint16_t kNIDsInShortNameOrder[] = {\n")
 	for _, nid := range nids {
 		fmt.Fprintf(&b, "%d /* %s */,\n", nid, objs.byNID[nid].shortName)
 	}
@@ -661,7 +654,7 @@ func writeData(path string, objs *objects) error {
 	}
 	sortNIDs(nids, objs, func(a, b object) bool { return a.longName < b.longName })
 
-	fmt.Fprintf(&b, "\nstatic const unsigned kNIDsInLongNameOrder[] = {\n")
+	fmt.Fprintf(&b, "\nstatic const uint16_t kNIDsInLongNameOrder[] = {\n")
 	for _, nid := range nids {
 		fmt.Fprintf(&b, "%d /* %s */,\n", nid, objs.byNID[nid].longName)
 	}
@@ -686,7 +679,7 @@ func writeData(path string, objs *objects) error {
 		return bytes.Compare(a.encoded, b.encoded) < 0
 	})
 
-	fmt.Fprintf(&b, "\nstatic const unsigned kNIDsInOIDOrder[] = {\n")
+	fmt.Fprintf(&b, "\nstatic const uint16_t kNIDsInOIDOrder[] = {\n")
 	for _, nid := range nids {
 		obj := objs.byNID[nid]
 		fmt.Fprintf(&b, "%d /* ", nid)
@@ -705,7 +698,7 @@ func writeData(path string, objs *objects) error {
 		return err
 	}
 
-	return ioutil.WriteFile(path, []byte(formatted), 0666)
+	return os.WriteFile(path, []byte(formatted), 0666)
 }
 
 func main() {

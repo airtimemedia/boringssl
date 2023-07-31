@@ -69,7 +69,6 @@ BUF_MEM *BUF_MEM_new(void) {
 
   ret = OPENSSL_malloc(sizeof(BUF_MEM));
   if (ret == NULL) {
-    OPENSSL_PUT_ERROR(BUF, ERR_R_MALLOC_FAILURE);
     return NULL;
   }
 
@@ -93,21 +92,18 @@ int BUF_MEM_reserve(BUF_MEM *buf, size_t cap) {
 
   size_t n = cap + 3;
   if (n < cap) {
-    // overflow
-    OPENSSL_PUT_ERROR(BUF, ERR_R_MALLOC_FAILURE);
+    OPENSSL_PUT_ERROR(BUF, ERR_R_OVERFLOW);
     return 0;
   }
   n = n / 3;
   size_t alloc_size = n * 4;
   if (alloc_size / 4 != n) {
-    // overflow
-    OPENSSL_PUT_ERROR(BUF, ERR_R_MALLOC_FAILURE);
+    OPENSSL_PUT_ERROR(BUF, ERR_R_OVERFLOW);
     return 0;
   }
 
   char *new_buf = OPENSSL_realloc(buf->data, alloc_size);
   if (new_buf == NULL) {
-    OPENSSL_PUT_ERROR(BUF, ERR_R_MALLOC_FAILURE);
     return 0;
   }
 
@@ -132,6 +128,10 @@ size_t BUF_MEM_grow_clean(BUF_MEM *buf, size_t len) {
 }
 
 int BUF_MEM_append(BUF_MEM *buf, const void *in, size_t len) {
+  // Work around a C language bug. See https://crbug.com/1019588.
+  if (len == 0) {
+    return 1;
+  }
   size_t new_len = buf->length + len;
   if (new_len < len) {
     OPENSSL_PUT_ERROR(BUF, ERR_R_OVERFLOW);
@@ -145,87 +145,24 @@ int BUF_MEM_append(BUF_MEM *buf, const void *in, size_t len) {
   return 1;
 }
 
-char *BUF_strdup(const char *str) {
-  if (str == NULL) {
-    return NULL;
-  }
-
-  return BUF_strndup(str, strlen(str));
-}
+char *BUF_strdup(const char *str) { return OPENSSL_strdup(str); }
 
 size_t BUF_strnlen(const char *str, size_t max_len) {
-  size_t i;
-
-  for (i = 0; i < max_len; i++) {
-    if (str[i] == 0) {
-      break;
-    }
-  }
-
-  return i;
+  return OPENSSL_strnlen(str, max_len);
 }
 
 char *BUF_strndup(const char *str, size_t size) {
-  char *ret;
-  size_t alloc_size;
-
-  if (str == NULL) {
-    return NULL;
-  }
-
-  size = BUF_strnlen(str, size);
-
-  alloc_size = size + 1;
-  if (alloc_size < size) {
-    // overflow
-    OPENSSL_PUT_ERROR(BUF, ERR_R_MALLOC_FAILURE);
-    return NULL;
-  }
-  ret = OPENSSL_malloc(alloc_size);
-  if (ret == NULL) {
-    OPENSSL_PUT_ERROR(BUF, ERR_R_MALLOC_FAILURE);
-    return NULL;
-  }
-
-  OPENSSL_memcpy(ret, str, size);
-  ret[size] = '\0';
-  return ret;
+  return OPENSSL_strndup(str, size);
 }
 
 size_t BUF_strlcpy(char *dst, const char *src, size_t dst_size) {
-  size_t l = 0;
-
-  for (; dst_size > 1 && *src; dst_size--) {
-    *dst++ = *src++;
-    l++;
-  }
-
-  if (dst_size) {
-    *dst = 0;
-  }
-
-  return l + strlen(src);
+  return OPENSSL_strlcpy(dst, src, dst_size);
 }
 
 size_t BUF_strlcat(char *dst, const char *src, size_t dst_size) {
-  size_t l = 0;
-  for (; dst_size > 0 && *dst; dst_size--, dst++) {
-    l++;
-  }
-  return l + BUF_strlcpy(dst, src, dst_size);
+  return OPENSSL_strlcat(dst, src, dst_size);
 }
 
 void *BUF_memdup(const void *data, size_t size) {
-  if (size == 0) {
-    return NULL;
-  }
-
-  void *ret = OPENSSL_malloc(size);
-  if (ret == NULL) {
-    OPENSSL_PUT_ERROR(BUF, ERR_R_MALLOC_FAILURE);
-    return NULL;
-  }
-
-  OPENSSL_memcpy(ret, data, size);
-  return ret;
+  return OPENSSL_memdup(data, size);
 }

@@ -182,11 +182,11 @@ _vpaes_encrypt_core:
 ##
 ##  Inputs:
 ##     %xmm0 and %xmm6 = input
-##     %xmm12-%xmm15 as in _vpaes_preheat
+##     %xmm9 and %xmm10 as in _vpaes_preheat
 ##    (%rdx) = scheduled keys
 ##
 ##  Output in %xmm0 and %xmm6
-##  Clobbers  %xmm1-%xmm5, %xmm7-%xmm11, %r9, %r10, %r11, %rax
+##  Clobbers  %xmm1-%xmm5, %xmm7, %xmm8, %xmm11-%xmm13, %r9, %r10, %r11, %rax
 ##  Preserves %xmm14 and %xmm15
 ##
 ##  This function stitches two parallel instances of _vpaes_encrypt_core. x86_64
@@ -871,11 +871,10 @@ _vpaes_schedule_mangle:
 .align	16
 ${PREFIX}_set_encrypt_key:
 .cfi_startproc
-#ifndef NDEBUG
-#ifndef BORINGSSL_FIPS
+	_CET_ENDBR
+#ifdef BORINGSSL_DISPATCH_TEST
 .extern        BORINGSSL_function_hit
        movb \$1, BORINGSSL_function_hit+5(%rip)
-#endif
 #endif
 
 ___
@@ -928,6 +927,7 @@ $code.=<<___;
 .align	16
 ${PREFIX}_set_decrypt_key:
 .cfi_startproc
+	_CET_ENDBR
 ___
 $code.=<<___ if ($win64);
 	lea	-0xb8(%rsp),%rsp
@@ -983,11 +983,10 @@ $code.=<<___;
 .align	16
 ${PREFIX}_encrypt:
 .cfi_startproc
-#ifndef NDEBUG
-#ifndef BORINGSSL_FIPS
+	_CET_ENDBR
+#ifdef BORINGSSL_DISPATCH_TEST
 .extern        BORINGSSL_function_hit
        movb \$1, BORINGSSL_function_hit+4(%rip)
-#endif
 #endif
 ___
 $code.=<<___ if ($win64);
@@ -1034,6 +1033,7 @@ $code.=<<___;
 .align	16
 ${PREFIX}_decrypt:
 .cfi_startproc
+	_CET_ENDBR
 ___
 $code.=<<___ if ($win64);
 	lea	-0xb8(%rsp),%rsp
@@ -1085,6 +1085,7 @@ $code.=<<___;
 .align	16
 ${PREFIX}_cbc_encrypt:
 .cfi_startproc
+	_CET_ENDBR
 	xchg	$key,$len
 ___
 ($len,$key)=($key,$len);
@@ -1170,6 +1171,7 @@ $code.=<<___;
 .align	16
 ${PREFIX}_ctr32_encrypt_blocks:
 .cfi_startproc
+	_CET_ENDBR
 	# _vpaes_encrypt_core and _vpaes_encrypt_core_2x expect the key in %rdx.
 	xchg	$key, $blocks
 ___
@@ -1292,6 +1294,7 @@ _vpaes_preheat:
 ##                                                    ##
 ########################################################
 .type	_vpaes_consts,\@object
+.section .rodata
 .align	64
 _vpaes_consts:
 .Lk_inv:	# inv, inva
@@ -1401,6 +1404,7 @@ _vpaes_consts:
 .asciz	"Vector Permutation AES for x86_64/SSSE3, Mike Hamburg (Stanford University)"
 .align	64
 .size	_vpaes_consts,.-_vpaes_consts
+.text
 ___
 
 if ($win64) {
@@ -1550,4 +1554,4 @@ $code =~ s/\`([^\`]*)\`/eval($1)/gem;
 
 print $code;
 
-close STDOUT or die "error closing STDOUT";
+close STDOUT or die "error closing STDOUT: $!";

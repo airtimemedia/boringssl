@@ -10,7 +10,9 @@
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
-// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
+// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+//go:build ignore
 
 // break-hash parses an ELF binary containing the FIPS module and corrupts the
 // first byte of the module. This should cause the integrity check to fail.
@@ -24,12 +26,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 )
 
 func do(outPath, inPath string) error {
-	objectBytes, err := ioutil.ReadFile(inPath)
+	objectBytes, err := os.ReadFile(inPath)
 	if err != nil {
 		return err
 	}
@@ -55,6 +56,10 @@ func do(outPath, inPath string) error {
 	}
 
 	symbols, err := object.Symbols()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s\nTrying dynamic symbols\n", err)
+		symbols, err = object.DynamicSymbols()
+	}
 	if err != nil {
 		return errors.New("failed to parse symbols: " + err.Error())
 	}
@@ -123,11 +128,11 @@ func do(outPath, inPath string) error {
 	newHash := mac.Sum(nil)
 
 	fmt.Printf("Found start of module at offset 0x%x (VMA 0x%x):\n", start-textSection.Addr, start)
-	fmt.Printf(hex.Dump(moduleText[:128]))
+	fmt.Println(hex.Dump(moduleText[:128]))
 	fmt.Printf("\nHash of module was:          %x\n", hashWas)
 	fmt.Printf("Hash of corrupted module is: %x\n", newHash)
 
-	return ioutil.WriteFile(outPath, objectBytes, 0755)
+	return os.WriteFile(outPath, objectBytes, 0755)
 }
 
 func main() {
