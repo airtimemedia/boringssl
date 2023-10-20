@@ -125,6 +125,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CLANG)
     # airtime: start
     set(C_CXX_FLAGS "${C_CXX_FLAGS} -Wno-unused-but-set-variable")
     # airtime: end
+    set(C_CXX_FLAGS "${C_CXX_FLAGS} -Wno-array-parameter")
   else()
     # GCC (at least 4.8.4) has a bug where it'll find unreachable free() calls
     # and declare that the code is trying to free a stack pointer.

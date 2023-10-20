@@ -251,3 +251,7 @@ else()
 
   add_dependencies(fipsmodule global_target)
 endif()
+
+if(APPLE)
+  target_compile_options(fipsmodule PRIVATE "-Wno-array-parameter")
+endif()
