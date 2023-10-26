@@ -123,7 +123,8 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CLANG)
   if(CLANG)
     set(C_CXX_FLAGS "${C_CXX_FLAGS} -Wnewline-eof -fcolor-diagnostics")
     # airtime: start
-    set(C_CXX_FLAGS "${C_CXX_FLAGS} -Wno-unused-but-set-variable")
+    # Disable warnings to compile on macOS
+    set(C_CXX_FLAGS "${C_CXX_FLAGS} -Wno-unused-but-set-variable -Wno-array-parameter")
     # airtime: end
   else()
     # GCC (at least 4.8.4) has a bug where it'll find unreachable free() calls
