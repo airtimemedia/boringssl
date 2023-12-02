@@ -2,6 +2,9 @@
 
 # Allow reading location of libraries
 cmake_policy(SET CMP0026 OLD)
+# TODO(igork) - see if we have to have this (YUBA-15)
+cmake_policy(SET CMP0079 NEW)
+# end TODO(igork)
 
 set(at_boringssl_include_dir ${CMAKE_CURRENT_SOURCE_DIR}/../include CACHE INTERNAL "")
 
@@ -35,7 +38,10 @@ endif()
 # Disable warnings introduced in Xcode 7.3
 add_compile_options(-Wno-logical-not-parentheses -Wno-implicit-fallthrough)
 
-add_subdirectory(.. ${CMAKE_CURRENT_BINARY_DIR}/boringssl)
+# TODO(igork) - this change is to avoid conflicts with grpc; is this the best way?
+# add_subdirectory(.. ${CMAKE_CURRENT_BINARY_DIR}/boringssl)
+add_subdirectory_once(.. ${CMAKE_CURRENT_BINARY_DIR}/boringssl)
+# end TODO(igork)
 set(CMAKE_SYSTEM_PROCESSOR ${ORIG_CMAKE_SYSTEM_PROCESSOR})
 
 get_property(boringssl_ssl_lib TARGET ssl PROPERTY LOCATION)
@@ -46,8 +52,18 @@ get_property(boringssl_crypto_lib TARGET crypto PROPERTY LOCATION)
 get_filename_component(boringssl_crypto_dir ${boringssl_crypto_lib} DIRECTORY)
 set(at_boringssl_crypto_dir ${boringssl_crypto_dir} CACHE INTERNAL "")
 
-add_library(at_boringssl INTERFACE)
-target_include_directories(at_boringssl INTERFACE ${at_boringssl_include_dir})
-target_link_libraries(at_boringssl INTERFACE ssl crypto decrepit)
-add_dependencies(at_boringssl ssl crypto decrepit)  # CAR-1049: Add explicit dependency
+# add_library(at_boringssl INTERFACE)
+# target_include_directories(at_boringssl INTERFACE ${at_boringssl_include_dir})
+# target_link_libraries(at_boringssl INTERFACE ssl crypto decrepit)
+# add_dependencies(at_boringssl ssl crypto decrepit)  # CAR-1049: Add explicit dependency
+# # TODO(igork) - this change is to avoid conflicts with grpc; is this the best way?
+# (commented out above is the original code)
+if (NOT TARGET at_boringssl)
+  add_library(at_boringssl INTERFACE)
+  message(STATUS "DEBUG: BoringSSL Airtime CMake: at_boringssl_include_dir=${at_boringssl_include_dir}")
+  target_include_directories(at_boringssl INTERFACE ${at_boringssl_include_dir})
+  target_link_libraries(at_boringssl INTERFACE ssl crypto decrepit)
+  add_dependencies(at_boringssl ssl crypto decrepit)  # CAR-1049: Add explicit dependency
+endif()
+# end TODO(igork)
 
