@@ -10,7 +10,7 @@
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
-// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
+// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 // inject_hash parses an archive containing a file object file. It finds a FIPS
 // module inside that object, calculates its hash and replaces the default hash
@@ -20,14 +20,13 @@ package main
 import (
 	"bytes"
 	"crypto/hmac"
-	"crypto/sha512"
+	"crypto/sha256"
 	"debug/elf"
 	"encoding/binary"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strings"
 
@@ -38,12 +37,20 @@ import (
 func do(outPath, oInput string, arInput string) error {
 	var objectBytes []byte
 	var isStatic bool
+	var perm os.FileMode
+
 	if len(arInput) > 0 {
 		isStatic = true
 
 		if len(oInput) > 0 {
 			return fmt.Errorf("-in-archive and -in-object are mutually exclusive")
 		}
+
+		fi, err := os.Stat(arInput)
+		if err != nil {
+			return err
+		}
+		perm = fi.Mode()
 
 		arFile, err := os.Open(arInput)
 		if err != nil {
@@ -64,8 +71,13 @@ func do(outPath, oInput string, arInput string) error {
 			objectBytes = contents
 		}
 	} else if len(oInput) > 0 {
-		var err error
-		if objectBytes, err = ioutil.ReadFile(oInput); err != nil {
+		fi, err := os.Stat(oInput)
+		if err != nil {
+			return err
+		}
+		perm = fi.Mode()
+
+		if objectBytes, err = os.ReadFile(oInput); err != nil {
 			return err
 		}
 		isStatic = strings.HasSuffix(oInput, ".o")
@@ -202,7 +214,7 @@ func do(outPath, oInput string, arInput string) error {
 	}
 
 	var zeroKey [64]byte
-	mac := hmac.New(sha512.New, zeroKey[:])
+	mac := hmac.New(sha256.New, zeroKey[:])
 
 	if moduleROData != nil {
 		var lengthBytes [8]byte
@@ -232,7 +244,7 @@ func do(outPath, oInput string, arInput string) error {
 
 	copy(objectBytes[offset:], calculated)
 
-	return ioutil.WriteFile(outPath, objectBytes, 0644)
+	return os.WriteFile(outPath, objectBytes, perm&0777)
 }
 
 func main() {

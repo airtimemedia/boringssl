@@ -14,8 +14,7 @@
 
 #include <openssl/base.h>
 
-#if !defined(NDEBUG) && !defined(BORINGSSL_FIPS) && \
-    !defined(BORINGSSL_SHARED_LIBRARY)
+#if defined(BORINGSSL_DISPATCH_TEST) && !defined(BORINGSSL_SHARED_LIBRARY)
 
 #include <functional>
 #include <utility>
@@ -23,7 +22,6 @@
 
 #include <openssl/aead.h>
 #include <openssl/aes.h>
-#include <openssl/cpu.h>
 #include <openssl/mem.h>
 
 #include <gtest/gtest.h>
@@ -35,9 +33,9 @@ class ImplDispatchTest : public ::testing::Test {
  public:
   void SetUp() override {
 #if defined(OPENSSL_X86) || defined(OPENSSL_X86_64)
-    aesni_ = OPENSSL_ia32cap_P[1] & (1 << (57 - 32));
-    avx_movbe_ = ((OPENSSL_ia32cap_P[1] >> 22) & 0x41) == 0x41;
-    ssse3_ = OPENSSL_ia32cap_P[1] & (1 << (41 - 32));
+    aesni_ = CRYPTO_is_AESNI_capable();
+    avx_movbe_ = CRYPTO_is_AVX_capable() && CRYPTO_is_MOVBE_capable();
+    ssse3_ = CRYPTO_is_SSSE3_capable();
     is_x86_64_ =
 #if defined(OPENSSL_X86_64)
         true;
@@ -58,7 +56,7 @@ class ImplDispatchTest : public ::testing::Test {
 
     f();
 
-    for (const auto flag : flags) {
+    for (const auto& flag : flags) {
       SCOPED_TRACE(flag.first);
 
       ASSERT_LT(flag.first, sizeof(BORINGSSL_function_hit));
@@ -105,12 +103,12 @@ TEST_F(ImplDispatchTest, AEAD_AES_GCM) {
         const uint8_t kPlaintext[40] = {1, 2, 3, 4, 0};
         uint8_t ciphertext[sizeof(kPlaintext) + 16];
         size_t ciphertext_len;
-        EVP_AEAD_CTX ctx;
-        ASSERT_TRUE(EVP_AEAD_CTX_init(&ctx, EVP_aead_aes_128_gcm(), kZeros,
+        bssl::ScopedEVP_AEAD_CTX ctx;
+        ASSERT_TRUE(EVP_AEAD_CTX_init(ctx.get(), EVP_aead_aes_128_gcm(), kZeros,
                                       sizeof(kZeros),
                                       EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr));
         ASSERT_TRUE(EVP_AEAD_CTX_seal(
-            &ctx, ciphertext, &ciphertext_len, sizeof(ciphertext), kZeros,
+            ctx.get(), ciphertext, &ciphertext_len, sizeof(ciphertext), kZeros,
             EVP_AEAD_nonce_length(EVP_aead_aes_128_gcm()), kPlaintext,
             sizeof(kPlaintext), nullptr, 0));
       });
@@ -148,4 +146,4 @@ TEST_F(ImplDispatchTest, AES_single_block) {
 
 #endif  // X86 || X86_64
 
-#endif  // !NDEBUG && !FIPS && !SHARED_LIBRARY
+#endif  // DISPATCH_TEST && !SHARED_LIBRARY
