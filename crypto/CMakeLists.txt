@@ -338,6 +338,7 @@ if(WIN32)
 endif()
 
 if(NOT ANDROID)
+  set(CMAKE_THREAD_LIBS_INIT "-lpthread")
   find_package(Threads REQUIRED)
   target_link_libraries(crypto Threads::Threads)
 endif()
