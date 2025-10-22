@@ -1,7 +1,7 @@
 # Copyright Airtime Media 2014
 
 # Allow reading location of libraries
-cmake_policy(SET CMP0026 OLD)
+#cmake_policy(SET CMP0026 OLD)
 
 set(at_boringssl_include_dir ${CMAKE_CURRENT_SOURCE_DIR}/../include CACHE INTERNAL "")
 
